@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 任务名称 -->
+    <key>Label</key>
+    <string>com.aireport.daily</string>
+
+    <!-- 要运行的程序 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/MarkHuang/ai-RSS-person/daily_report_with_docker_check.sh</string>
+    </array>
+
+    <!-- 工作目录 -->
+    <key>WorkingDirectory</key>
+    <string>/Users/MarkHuang/ai-RSS-person</string>
+
+    <!-- 环境变量 -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- 定时配置：每天早上7点运行 -->
+    <!-- 任务流程：收集 → 排序 → AI分析 → 生成报告 → 上传JSON → 发送邮件 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- 标准输出日志 -->
+    <key>StandardOutPath</key>
+    <string>/Users/MarkHuang/ai-RSS-person/logs/stdout.log</string>
+
+    <!-- 错误输出日志 -->
+    <key>StandardErrorPath</key>
+    <string>/Users/MarkHuang/ai-RSS-person/logs/stderr.log</string>
+
+    <!-- 如果错过执行时间，在系统空闲时立即执行 -->
+    <key>LaunchOnlyOnce</key>
+    <false/>
+
+    <!-- 保持任务运行（如果程序崩溃会自动重启） -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- 允许在后台运行 -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

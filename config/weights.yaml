@@ -1,0 +1,115 @@
+# 权重配置文件
+
+# 来源权重 (60% 权重)
+# 基础分 60 分，最高可到 100 分
+source_weights:
+  # 官方博客 (最高权重)
+  OpenAI Blog: 100
+  Google DeepMind Blog: 100
+  Google AI Blog: 95
+  Microsoft Research: 90
+  Hugging Face: 95
+  NVIDIA Blog: 90
+  Anthropic AI: 100
+  DeepSeek AI: 95
+
+  # 学术/权威媒体
+  Arxiv AI: 85
+  MIT Technology Review: 80
+
+  # 顶级科技媒体
+  TechCrunch AI: 75
+  The Verge AI: 75
+  Ars Technica: 75
+
+  # AI 社区
+  Hacker News AI: 75
+  Hacker News LLM: 75
+
+  # AI 领袖
+  Sam Altman: 95
+  Geoffrey Hinton: 95
+  Yann LeCun: 95
+  Andrew Ng: 85
+
+  # 中文媒体
+  阮一峰博客: 90
+  少数派: 75
+  机器之心: 90
+
+  # 技术博客
+  Simon Willison: 85
+  Paul Graham: 90
+  Mitchel H: 80
+  Jeff Geerling: 75
+  Daring Fireball: 75
+  KREBs on Security: 80
+
+  # 研究博客
+  Machine Learning Mastery: 70
+  AWS ML Blog: 75
+  KDnuggets Neural Networks: 70
+
+# 高权重关键词 (40% 权重)
+keywords:
+  # AI 模型相关
+  - gpt
+  - claude
+  - gemini
+  - llama
+  - deepseek
+  - transformer
+  - model
+  - 模型
+
+  # 融资/商业相关
+  - funding
+  - investment
+  - 融资
+  - 投资
+  - unicorn
+  - acquisition
+  - 收购
+  - merger
+  - ipo
+  - 上市
+  - billion
+  - million
+
+  # 行业大事
+  - ceo
+  - founder
+  - executive
+  - 创始人
+  - partnership
+  - 合作
+  - deal
+
+  # 技术突破
+  - research
+  - paper
+  - arxiv
+  - 研究
+  - 突破
+  - benchmark
+  - 性能
+  - record
+  - 首次
+
+  # 产品发布
+  - product
+  - 产品
+  - feature
+  - 功能
+  - update
+  - 更新
+  - announcement
+  - 发布
+  - launch
+  - unveil
+  - 亮相
+
+# 评分权重配置
+scoring:
+  source_weight: 0.6    # 来源权重 60%
+  content_weight: 0.4   # 内容权重 40%

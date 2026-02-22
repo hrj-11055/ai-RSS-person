@@ -1,0 +1,110 @@
+# AI-RSS-PERSON Core Configuration
+# Version: 2.0.0
+# Inspired by BMAD multi-agent architecture
+
+system:
+  name: "AI-RSS-PERSON"
+  version: "2.0.0"
+  description: "AI-powered RSS aggregation and daily report generation system"
+
+# User configuration
+user:
+  name: "MarkHuang"
+  communication_language: "chinese"
+  document_output_language: "chinese"
+
+# Directory configuration
+directories:
+  project_root: "."  # Will be resolved dynamically
+  output_dir: "reports"
+  logs_dir: "logs"
+  config_dir: "_config"
+  core_dir: "core"
+  lib_dir: "lib"
+  agents_dir: "agents"
+  docs_dir: "docs"
+
+# Logging configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+
+# RSS configuration
+rss:
+  max_items_per_source: 5
+  time_window_hours: 24
+  default_timeout: 30
+  retry_delay: 1
+
+  # 严格时间过滤配置
+  strict_time_filter: true   # 启用严格时间过滤
+  reject_future_dates: true  # 拒绝未来日期
+  reject_old_dates: true     # 拒绝明显过旧的日期（2024年之前）
+  min_year: 2025             # 最低接受年份
+
+# Article ranking configuration
+ranking:
+  max_articles_in_report: 20
+  source_authority_weight: 0.60  # 60% from source authority
+  content_relevance_weight: 0.40  # 40% from content relevance
+  min_source_weight: 50
+  max_source_weight: 100
+
+# AI analysis configuration
+ai:
+  provider: "deepseek"
+  model: "deepseek-chat"
+  base_url: "https://api.deepseek.com"
+  max_tokens: 2000
+  temperature: 0.7
+
+# Cost tracking
+cost:
+  input_token_price_per_million: 2.0  # CNY
+  output_token_price_per_million: 3.0  # CNY
+
+# Output configuration
+output:
+  format: "html"  # html, markdown, json
+  default_encoding: "utf-8"
+  include_metadata: true
+  dark_mode_support: true
+
+# Publishing configuration
+publishing:
+  default_destinations:
+    - "local"
+    - "cloud"
+
+  cloud:
+    enabled: true
+    method: "sftp"  # sftp, http, ftp
+    host: "8.135.37.159"
+    port: 22
+    user: "root"
+    remote_path: "/var/www/html/reports"
+
+  wechat:
+    enabled: false
+    # WeChat configuration loaded from environment
+
+  local:
+    enabled: true
+    path: "reports"
+
+# Workflow configuration
+workflows:
+  default_workflow: "daily-report"
+  state_tracking: true
+  save_step_outputs: true
+  continue_on_error: false
+
+# Agent configuration
+agents:
+  master: "rss-master"
+  collector: "collector"
+  ranker: "ranker"
+  analyzer: "analyzer"
+  generator: "generator"
+  publisher: "publisher"

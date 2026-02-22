@@ -1,0 +1,25 @@
+# RSS-person 项目依赖
+# AI资讯自动生成与发布工具
+
+# RSS解析和请求
+feedparser>=6.0.0
+requests>=2.31.0
+
+# 反爬虫工具（绕过403等限制）
+curl-cffi>=0.5.0
+
+# AI分析
+openai>=1.0.0
+
+# 微信公众号发布
+wechatpy>=1.8.0
+
+# 环境变量管理
+python-dotenv>=1.0.0
+
+# 云服务器上传（SFTP支持）
+paramiko>=2.11.0
+
+# 邮件发送（Python标准库，无需安装）
+# smtplib
+# email
