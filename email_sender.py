@@ -11,23 +11,17 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from email.utils import formataddr, formatdate
 from datetime import datetime
+
+# 导入共享工具
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
 from dotenv import load_dotenv
+from core.utils import get_required_env, get_optional_env
 
 # 加载环境变量
 load_dotenv()
-
-
-def get_required_env(key: str) -> str:
-    """获取必需的环境变量"""
-    value = os.getenv(key)
-    if not value:
-        raise ValueError(f"缺少必需的环境变量: {key}")
-    return value
-
-
-def get_optional_env(key: str, default: str = "") -> str:
-    """获取可选的环境变量"""
-    return os.getenv(key, default)
 
 
 def send_email(

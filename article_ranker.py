@@ -10,13 +10,41 @@ Version: 2.1.0
 
 from typing import List, Dict, Optional
 from pathlib import Path
+import re
 
 # 导入配置管理器
 from core.config_manager import get_config_manager
 
 
+# 中文源识别模式
+CHINESE_SOURCE_PATTERNS = [
+    r'量子位', r'新智元', r'36.*氪', r'机器之心', r'极客公园',
+    r'InfoQ', r'AI前线', r'智东西', r'钛媒体', r'虎嗅',
+    r'甲子光年', r'智能涌现', r'少数派', r'阮一峰',
+    r'逛逛GitHub', r'赛博禅心', r'夕小瑶', r'AIBase',
+    r'AI Base', r'深科技', r'AI科技评论', r'AI新社'
+]
+
+
 class ArticleRanker:
     """文章排序器"""
+
+    @staticmethod
+    def is_chinese_source(article: Dict) -> bool:
+        """
+        判断文章是否来自中文源
+
+        Args:
+            article: 文章字典
+
+        Returns:
+            是否为中文源
+        """
+        source = article.get('source_name', article.get('source', ''))
+        for pattern in CHINESE_SOURCE_PATTERNS:
+            if re.search(pattern, source, re.IGNORECASE):
+                return True
+        return False
 
     # 默认配置（当 YAML 文件不存在时使用）
     DEFAULT_KEYWORDS = [
@@ -166,7 +194,7 @@ class ArticleRanker:
         # 每匹配一个关键词得4分，最高40分
         return min(40, matches * 4)
 
-    def rank_articles(self, articles: List[Dict], top_n: int = 20) -> List[Dict]:
+    def rank_articles(self, articles: List[Dict], top_n: int = 30) -> List[Dict]:
         """
         对文章列表进行排序，返回前N篇
 
@@ -223,9 +251,12 @@ class ArticleRanker:
         avg_score = total_score / len(articles)
 
         sources = {}
+        chinese_count = 0
         for article in articles:
             source = article['source']
             sources[source] = sources.get(source, 0) + 1
+            if self.is_chinese_source(article):
+                chinese_count += 1
 
         top_sources = sorted(sources.items(), key=lambda x: x[1], reverse=True)[:5]
 
@@ -235,6 +266,7 @@ class ArticleRanker:
 - 平均得分: {avg_score:.1f}
 - 最高得分: {articles[0].get('score', 0):.1f}
 - 最低得分: {articles[-1].get('score', 0):.1f}
+- 中文新闻: {chinese_count}篇
 
 📰 主要来源 (Top 5):
 """
@@ -242,6 +274,65 @@ class ArticleRanker:
             summary += f"  - {source}: {count}篇\n"
 
         return summary
+
+    def rank_articles_with_chinese_quota(
+        self,
+        articles: List[Dict],
+        top_n: int = 50,
+        chinese_quota: int = 10
+    ) -> List[Dict]:
+        """
+        带中文保障的文章排序
+
+        确保最终结果中中文新闻数量达到指定配额。
+
+        Args:
+            articles: 文章列表
+            top_n: 最终返回文章数
+            chinese_quota: 中文新闻最低数量
+
+        Returns:
+            排序后的文章列表，确保中文新闻 >= chinese_quota
+        """
+        # 1. 先进行正常排序（取更多候选）
+        candidates = self.rank_articles(articles, top_n=top_n * 2)
+
+        # 2. 分离中文和英文文章
+        chinese_articles = [a for a in candidates if self.is_chinese_source(a)]
+        other_articles = [a for a in candidates if not self.is_chinese_source(a)]
+
+        # 3. 检查中文新闻数量
+        if len(chinese_articles) < chinese_quota:
+            # 从所有文章中找更多中文新闻
+            all_chinese = [a for a in articles if self.is_chinese_source(a)]
+            remaining_chinese = [a for a in all_chinese if a not in chinese_articles]
+
+            # 按得分排序补充
+            for article in remaining_chinese:
+                if 'score' not in article:
+                    article['score'] = self.calculate_score(article)
+
+            additional = sorted(
+                remaining_chinese,
+                key=lambda x: x.get('score', 0),
+                reverse=True
+            )[:chinese_quota - len(chinese_articles)]
+
+            chinese_articles.extend(additional)
+
+        # 4. 合并结果（优先中文，再补充其他）
+        # 中文文章优先，取前 chinese_quota 篇
+        result = chinese_articles[:chinese_quota]
+
+        # 剩余位置用所有剩余文章填充
+        remaining_slots = top_n - len(result)
+        if remaining_slots > 0:
+            all_remaining = chinese_articles[chinese_quota:] + other_articles
+            all_remaining.sort(key=lambda x: x.get('score', 0), reverse=True)
+            result.extend(all_remaining[:remaining_slots])
+
+        # 确保不超过 top_n
+        return result[:top_n]
 
     def add_source_weight(self, source: str, weight: int):
         """添加或更新源权重"""

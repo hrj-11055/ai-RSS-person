@@ -1,0 +1,23 @@
+[Unit]
+Description=AI RSS Daily Report Generator
+Documentation=https://github.com/your-repo/ai-RSS-person
+After=network-online.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/ai-RSS-person
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/root/.local/bin"
+# 加载环境变量
+EnvironmentFile=-/opt/ai-RSS-person/.env
+ExecStart=/usr/bin/python3 daily_report_PRO_cloud.py
+# 标准输出到 journal
+StandardOutput=journal
+StandardError=journal
+# 失败时自动重启（仅用于 onshot 的 retry）
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

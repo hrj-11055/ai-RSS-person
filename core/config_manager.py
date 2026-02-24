@@ -71,7 +71,9 @@ class ConfigManager:
         # 转换为 RSSCollector 需要的格式
         result = []
         for source in sources:
-            if enabled_only and not source.get('enabled', True):
+            # 检查是否启用（enabled 字段存在且为 False 时禁用）
+            is_enabled = source.get('enabled')
+            if enabled_only and is_enabled is False:
                 continue
 
             strategy = source.get('strategy', 'direct')
@@ -82,6 +84,7 @@ class ConfigManager:
                 'url': source['url'],
                 'strategy': mapped_strategy,
                 'category': source.get('category', ''),
+                'enabled': is_enabled,  # 保留 enabled 字段
             })
 
         logger.info(f"从配置文件加载了 {len(result)} 个 RSS 源")
@@ -173,6 +176,16 @@ class ConfigManager:
             if source['name'] == name:
                 return source
         return None
+
+    def get_disabled_sources(self) -> List[Dict]:
+        """
+        获取禁用的源
+
+        Returns:
+            禁用的源配置列表
+        """
+        all_sources = self.get_all_sources()
+        return [s for s in all_sources if not s.get('enabled', True)]
 
     def get_categories(self) -> List[str]:
         """

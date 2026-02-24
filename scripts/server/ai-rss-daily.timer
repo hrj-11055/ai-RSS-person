@@ -1,0 +1,16 @@
+[Unit]
+Description=AI RSS Daily Report Timer
+Documentation=https://github.com/your-repo/ai-RSS-person
+Requires=ai-rss-daily.service
+
+[Timer]
+# 每天上午 09:00 执行（北京时间）
+OnCalendar=09:00
+TimeZone=Asia/Shanghai
+# 如果错过执行时间，立即执行
+Persistent=true
+# 随机延迟 0-5 分钟，避免多服务器冲突
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -11,44 +11,81 @@ source_weights:
   Hugging Face: 95
   NVIDIA Blog: 90
   Anthropic AI: 100
-  DeepSeek AI: 95
-
-  # 学术/权威媒体
-  Arxiv AI: 85
-  MIT Technology Review: 80
+  DeepSeek AI: 90
 
   # 顶级科技媒体
   TechCrunch AI: 75
   The Verge AI: 75
-  Ars Technica: 75
+  Ars Technica AI: 75
+  MIT Technology Review: 80
+  WIRED: 80
+
+  # AI 新闻媒体
+  The Gradient: 80
+  AI News: 75
+  Import AI: 80
+  Towards AI: 78
+  The Rundown AI: 80
+
+  # 学术/权威媒体
+  Arxiv AI: 85
+  MIT News AI: 85
 
   # AI 社区
   Hacker News AI: 75
   Hacker News LLM: 75
 
   # AI 领袖
-  Sam Altman: 95
-  Geoffrey Hinton: 95
-  Yann LeCun: 95
+  Sam Altman: 90
+  Geoffrey Hinton: 90
+  Yann LeCun: 85
   Andrew Ng: 85
 
   # 中文媒体
   阮一峰博客: 90
   少数派: 75
-  机器之心: 90
+  机器之心: 95
+  36氪 AI: 90
+  极客公园 AI新浪潮: 93
+  InfoQ AI: 91
+  AI Base 新闻: 92
+  量子位: 96
+  AI前线: 94
+  新智元: 97
+  深科技: 90
+  AI科技评论: 92
+  智东西: 90
+  逛逛GitHub: 88
+  赛博禅心: 85
+  夕小瑶科技说: 88
 
-  # 技术博客
+  # 技术博客 (精选)
   Simon Willison: 85
   Paul Graham: 90
-  Mitchel H: 80
-  Jeff Geerling: 75
   Daring Fireball: 75
   KREBs on Security: 80
 
   # 研究博客
   Machine Learning Mastery: 70
   AWS ML Blog: 75
+  Microsoft ML Blog: 75
   KDnuggets Neural Networks: 70
+  Hackaday Neural Network: 70
+  Singularity Weblog: 70
+  DataRobot AI: 70
+  Datumbox ML Blog: 70
+  Marketing AI Institute: 70
+  Yseop AI: 70
+  Becoming Human AI: 70
+  AI Weirdness: 65
+
+  # YouTube 频道
+  Andrej Karpathy: 90
+  Anthropic YouTube: 85
+  Y Combinator: 85
+  Marques Brownlee: 75
+  3Blue1Brown: 85
+  Linus Tech Tips: 70
 
 # 高权重关键词 (40% 权重)
 keywords:
@@ -56,11 +93,14 @@ keywords:
   - gpt
   - claude
   - gemini
-  - llama
+  - kimi
   - deepseek
   - transformer
   - model
   - 模型
+  - 大模型
+  - github
+  - AI
 
   # 融资/商业相关
   - funding
@@ -95,6 +135,8 @@ keywords:
   - 性能
   - record
   - 首次
+  - 论文
+  - Token
 
   # 产品发布
   - product

@@ -6,7 +6,7 @@ Extracted from various scripts to eliminate duplication.
 """
 
 # ================= RSS Fetching =================
-DEFAULT_MAX_ITEMS_PER_SOURCE = 5
+DEFAULT_MAX_ITEMS_PER_SOURCE = 7
 DEFAULT_FETCH_TIMEOUT = 120  # 增加超时时间以适应公共 RSSHub 实例访问
 DEFAULT_RETRY_DELAY = 1
 
@@ -17,7 +17,7 @@ STRATEGY_DIRECT = "direct"
 STRATEGY_NOPROXY = "noproxy"
 
 # ================= Article Ranking =================
-DEFAULT_MAX_ARTICLES_IN_REPORT = 20
+DEFAULT_MAX_ARTICLES_IN_REPORT = 50
 DEFAULT_SOURCE_WEIGHT_MIN = 50
 DEFAULT_SOURCE_WEIGHT_MAX = 100
 

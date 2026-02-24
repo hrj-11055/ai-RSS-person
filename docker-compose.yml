@@ -1,7 +1,7 @@
 # RSS-person 项目 Docker 配置
 # AI资讯自动生成与发布工具
 #
-# 当前配置：MySQL + wewe-rss + 本地 RSSHub（因公开实例不稳定）
+# 精简配置：仅 RSSHub + Redis（移除 MySQL 和 wewe-rss）
 
 services:
   # Redis - RSSHub 缓存
@@ -12,7 +12,7 @@ services:
     networks:
       - rss-network
 
-  # RSSHub - 本地部署（因公开实例不稳定）
+  # RSSHub - 本地部署（Twitter 等 RSS 源）
   rsshub:
     image: diygod/rsshub:latest
     container_name: rss-person-rsshub
@@ -22,57 +22,26 @@ services:
       - NODE_ENV=production
       - CACHE_TYPE=redis
       - REDIS_URL=redis://redis:6379
-      # Twitter 认证（需要有效的 token）
+      # Twitter 认证 Cookie (需要 auth_token 和 ct0)
       - TWITTER_AUTH_TOKEN=51e551ff8318dd33286897285d4bf514d8250bec
-      # HTTP 代理配置 (OrbStack 使用网关 IP)
-      - HTTP_PROXY=http://192.168.2.1:7897
-      - HTTPS_PROXY=http://192.168.2.1:7897
-      - NO_PROXY=localhost,127.0.0.1,redis
+      - TWITTER_CT0=c27d2c1495e50f31c6db0f3729d5960fdc7f6c15a53f5dc114f8b606d272983d8999d46a45378d19d95e3e585d58da85eed1a3040725a34d54d43aee271047045c8393c24d0b7d0158389e309770d8e6
+      # RSSHub 代理配置 (使用 PROXY_URI)
+      - PROXY_URI=http://192.168.139.3:7897
     depends_on:
       - redis
     restart: unless-stopped
     networks:
       - rss-network
+    extra_hosts:
+      - "host.machine:192.168.139.3"
     dns:
       - 8.8.8.8
       - 8.8.4.4
-
-  # MySQL - wewe-rss 数据库（可选）
-  # 如果不需要微信公众号源，可以注释掉以下整个服务块
-  mysql:
-    image: mysql:8.0
-    container_name: rss-person-mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=wewe_root_password
-      - MYSQL_DATABASE=wewe
-      - MYSQL_USER=wewe
-      - MYSQL_PASSWORD=wewe_password
-    volumes:
-      - mysql-data:/var/lib/mysql
-    restart: unless-stopped
-    networks:
-      - rss-network
-
-  # wewe-rss - 微信公众号订阅（可选）
-  # 如果不需要微信公众号源，可以注释掉以下整个服务块
-  wewe-rss:
-    image: cooderl/wewe-rss:latest
-    container_name: rss-person-wewe-rss
-    ports:
-      - "4000:4000"
-    environment:
-      - DATABASE_URL=mysql://wewe:wewe_password@mysql:3306/wewe
-      - AUTH_CODE=wewe_secret_2024
-      - SERVER_ORIGIN_URL=http://localhost:4000
-    depends_on:
-      - mysql
-    restart: unless-stopped
-    networks:
-      - rss-network
+    # 内存限制（可选，服务器部署时建议设置）
+    # mem_limit: 512m
 
 networks:
   rss-network:
     driver: bridge
 
-volumes:
-  mysql-data:
+# 已移除 mysql-data volume（不再需要）

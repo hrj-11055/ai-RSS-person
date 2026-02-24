@@ -4,9 +4,10 @@ AI 日报生成器 - 云服务器版本
 主要功能：
 1. 从多个 RSS 源采集 AI 行业新闻
 2. 使用智能排序系统筛选重要文章
+3. 对文章标题进行去重
 3. 通过 DeepSeek AI 分析并生成 JSON 格式报告
 4. 上传到云服务器供网站集成使用
-
+5. 将来直接在服务器上部署，就不需要上传到云服务器，本来就在云服务器上了。
 Author: AI-RSS-PERSON Team
 Version: 2.0.0
 """
@@ -26,11 +27,15 @@ from core.utils import setup_logger, get_required_env, get_optional_env, get_int
 from core.utils.constants import *
 
 # 导入 lib 模块
-from lib.rss_collector import RSSCollector, DEFAULT_SOURCES
+from lib.rss_collector import RSSCollector
 from lib.ai_analyzer import AIAnalyzer
 from lib.publishers.cloud_publisher import CloudPublisher
 from lib.publishers.local_publisher import LocalPublisher
+from lib.article_deduplicator import ArticleDeduplicator
 from article_ranker import ArticleRanker
+
+# 导入配置管理器
+from core.config_manager import get_config_manager
 
 # ================= ⚙️ 配置区域 (从环境变量读取) =================
 
@@ -77,13 +82,94 @@ HTTP_UPLOAD_TOKEN = get_optional_env("HTTP_UPLOAD_TOKEN", "")
 logger = setup_logger(level=LOG_LEVEL)
 
 
+# ================= 🔧 自动更新 RSSHub 代理 IP =================
+def update_rsshub_proxy_ip():
+    """
+    自动获取 OrbStack bridge100 IP 并更新 docker-compose.yml 中的 PROXY_URI
+    这样 RSSHub 容器可以正确访问宿主机的代理服务
+    """
+    import subprocess
+    import re
+
+    try:
+        # 方法1: 获取 bridge100 的 IP
+        result = subprocess.run(
+            ["ifconfig", "bridge100"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode == 0:
+            # 从 ifconfig 输出中提取 IP 地址
+            match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', result.stdout)
+            if match:
+                new_ip = match.group(1)
+            else:
+                logger.warning("⚠️ 无法从 bridge100 获取 IP")
+                return False
+        else:
+            logger.warning("⚠️ bridge100 接口不存在，跳过代理 IP 更新")
+            return False
+
+        # 读取 docker-compose.yml
+        compose_file = Path(__file__).parent / "docker-compose.yml"
+        if not compose_file.exists():
+            logger.warning("⚠️ docker-compose.yml 不存在，跳过代理 IP 更新")
+            return False
+
+        content = compose_file.read_text()
+
+        # 检查是否需要更新
+        current_proxy_match = re.search(r'PROXY_URI=http://(\d+\.\d+\.\d+\.\d+)', content)
+        if current_proxy_match:
+            current_ip = current_proxy_match.group(1)
+            if current_ip == new_ip:
+                logger.info(f"✅ 代理 IP 无需更新: {new_ip}")
+                return True
+
+        # 更新 PROXY_URI
+        new_content = re.sub(
+            r'PROXY_URI=http://\d+\.\d+\.\d+\.\d+',
+            f'PROXY_URI=http://{new_ip}',
+            content
+        )
+
+        # 写回文件
+        compose_file.write_text(new_content)
+        logger.info(f"🔄 已更新 docker-compose.yml 中的代理 IP: {new_ip}")
+
+        # 重启 RSSHub 容器使新配置生效
+        try:
+            subprocess.run(
+                ["docker-compose", "-f", str(compose_file), "restart", "rsshub"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=compose_file.parent
+            )
+            logger.info("✅ RSSHub 容器已重启")
+            # 等待 RSSHub 启动
+            time.sleep(5)
+        except Exception as e:
+            logger.warning(f"⚠️ RSSHub 重启失败: {e}")
+
+        return True
+
+    except FileNotFoundError:
+        logger.warning("⚠️ ifconfig 命令不可用，跳过代理 IP 更新")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.warning("⚠️ 获取 IP 超时，跳过代理 IP 更新")
+        return False
+    except Exception as e:
+        logger.warning(f"⚠️ 更新代理 IP 时出错: {e}")
+        return False
+
+
 # ================= 🤖 AI 日报生成器 =================
 class AI_Daily_Report:
     """AI 日报生成器主类"""
-
-    # RSS 源配置 - 直接使用 lib/rss_collector.py 的 DEFAULT_SOURCES
-    # DEFAULT_SOURCES 包含：Twitter源、国际科技博客、AI社区、中文RSS、博客RSS等
-    SOURCES = DEFAULT_SOURCES
 
     def __init__(self):
         """初始化 AI 日报生成器"""
@@ -91,13 +177,20 @@ class AI_Daily_Report:
         if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.startswith("your_"):
             raise ValueError("❌ DeepSeek API Key 未配置！请在 .env 文件中设置 DEEPSEEK_API_KEY")
 
+        # 从 YAML 配置文件加载 RSS 源
+        config_manager = get_config_manager()
+        sources = config_manager.get_enabled_sources()
+
+        logger.info(f"📡 已加载 {len(sources)} 个启用的 RSS 源")
+
         # 初始化组件
         self.ranker = ArticleRanker()
+        self.deduplicator = ArticleDeduplicator(config_manager=config_manager)
         self.cost_tracker = CostTracker()
 
         # 初始化 RSS 收集器
         self.collector = RSSCollector(
-            sources=self.SOURCES,
+            sources=sources,
             proxy_url=PROXY_URL,
             max_items_per_source=MAX_ITEMS_PER_SOURCE,
             time_window_hours=24
@@ -140,9 +233,17 @@ class AI_Daily_Report:
                 logger.warning("❌ 过去24小时内没有新资讯，任务结束。")
                 return
 
-            # 2. 智能排序并限制数量
+            # 2. 文章去重（基于标题语义相似度）
+            logger.info(f"\n🔄 开始去重 (共 {len(items)} 条文章)...")
+            items = self.deduplicator.deduplicate(items)
+
+            # 3. 智能排序并限制数量（确保中文新闻 ≥ 10 篇）
             logger.info(f"\n📊 开始智能排序 (共 {len(items)} 条文章)...")
-            ranked_items = self.ranker.rank_articles(items, top_n=MAX_ARTICLES_IN_REPORT)
+            ranked_items = self.ranker.rank_articles_with_chinese_quota(
+                items,
+                top_n=MAX_ARTICLES_IN_REPORT,
+                chinese_quota=10  # 确保至少10篇中文新闻
+            )
 
             # 打印排序统计
             logger.info(f"\n{self.ranker.get_ranking_summary(ranked_items)}")
@@ -235,6 +336,12 @@ class AI_Daily_Report:
 
 if __name__ == "__main__":
     try:
+        # 首先更新 RSSHub 代理 IP
+        logger.info("=" * 60)
+        logger.info("🔍 检查并更新 RSSHub 代理 IP...")
+        update_rsshub_proxy_ip()
+        logger.info("=" * 60 + "\n")
+
         bot = AI_Daily_Report()
         bot.run()
     except ValueError as e:
