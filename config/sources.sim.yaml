@@ -1,0 +1,18 @@
+sources:
+  - name: 机器之心
+    url: https://www.jiqizhixin.com/rss
+    strategy: noproxy
+    enabled: true
+    category: 中文媒体
+
+  - name: 36氪 AI
+    url: /36kr/information/AI
+    strategy: rsshub
+    enabled: true
+    category: 中文媒体
+
+  - name: The Verge AI
+    url: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+    strategy: direct
+    enabled: true
+    category: 科技媒体
