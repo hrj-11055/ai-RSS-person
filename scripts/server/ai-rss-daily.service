@@ -6,18 +6,24 @@ Wants=docker.service
 
 [Service]
 Type=oneshot
-User=root
+User=ai-rss
+Group=ai-rss
 WorkingDirectory=/opt/ai-RSS-person
-Environment="PATH=/usr/local/bin:/usr/bin:/bin:/root/.local/bin"
+Environment="PATH=/opt/ai-RSS-person/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 # 加载环境变量
 EnvironmentFile=-/opt/ai-RSS-person/.env
-ExecStart=/usr/bin/python3 daily_report_PRO_cloud.py
+ExecStart=/opt/ai-RSS-person/.venv/bin/python daily_report_PRO_cloud.py
 # 标准输出到 journal
 StandardOutput=journal
 StandardError=journal
 # 失败时自动重启（仅用于 onshot 的 retry）
 Restart=on-failure
 RestartSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/ai-RSS-person/reports /opt/ai-RSS-person/logs
 
 [Install]
 WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+# Locked runtime dependencies for reproducible server deployment
+feedparser==6.0.12
+requests==2.32.5
+curl-cffi==0.14.0
+openai==2.15.0
+wechatpy==1.8.18
+python-dotenv==1.2.1
+paramiko==4.0.0

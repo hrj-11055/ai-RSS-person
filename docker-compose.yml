@@ -6,7 +6,7 @@
 services:
   # Redis - RSSHub 缓存
   redis:
-    image: redis:alpine
+    image: redis:7.2-alpine
     container_name: rss-person-redis
     restart: unless-stopped
     networks:
@@ -14,7 +14,7 @@ services:
 
   # RSSHub - 本地部署（Twitter 等 RSS 源）
   rsshub:
-    image: diygod/rsshub:latest
+    image: diygod/rsshub:2024-12-05
     container_name: rss-person-rsshub
     ports:
       - "1200:1200"
@@ -23,10 +23,10 @@ services:
       - CACHE_TYPE=redis
       - REDIS_URL=redis://redis:6379
       # Twitter 认证 Cookie (需要 auth_token 和 ct0)
-      - TWITTER_AUTH_TOKEN=51e551ff8318dd33286897285d4bf514d8250bec
-      - TWITTER_CT0=c27d2c1495e50f31c6db0f3729d5960fdc7f6c15a53f5dc114f8b606d272983d8999d46a45378d19d95e3e585d58da85eed1a3040725a34d54d43aee271047045c8393c24d0b7d0158389e309770d8e6
+      - TWITTER_AUTH_TOKEN=${TWITTER_AUTH_TOKEN:-}
+      - TWITTER_CT0=${TWITTER_CT0:-}
       # RSSHub 代理配置 (使用 PROXY_URI)
-      - PROXY_URI=http://192.168.139.3:7897
+      - PROXY_URI=${PROXY_URI:-http://127.0.0.1:7897}
     depends_on:
       - redis
     restart: unless-stopped

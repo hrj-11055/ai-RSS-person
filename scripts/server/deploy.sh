@@ -47,6 +47,11 @@ check_local_env() {
         exit 1
     fi
 
+    if [ ! -f "${LOCAL_PROJECT_DIR}/requirements.lock.txt" ]; then
+        log_error "缺少 requirements.lock.txt（P0 要求可复现依赖安装）"
+        exit 1
+    fi
+
     log_info "本地环境检查通过"
 }
 
@@ -87,8 +92,10 @@ create_remote_dirs() {
     log_info "创建远程目录..."
 
     ssh -p "${SERVER_PORT}" "${SERVER_USER}@${SERVER_HOST}" << 'ENDSSH'
+        id -u ai-rss >/dev/null 2>&1 || useradd --system --create-home --home-dir /opt/ai-rss --shell /usr/sbin/nologin ai-rss
         mkdir -p /opt/ai-RSS-person/reports
         mkdir -p /opt/ai-RSS-person/logs
+        chown -R ai-rss:ai-rss /opt/ai-RSS-person/reports /opt/ai-RSS-person/logs
         chmod +x /opt/ai-RSS-person/scripts/server/*.sh
 ENDSSH
 
@@ -101,7 +108,10 @@ install_dependencies() {
 
     ssh -p "${SERVER_PORT}" "${SERVER_USER}@${SERVER_HOST}" << 'ENDSSH'
         cd /opt/ai-RSS-person
-        pip3 install -r requirements.txt 2>&1 | grep -E "(Successfully|already|Requirement)"
+        python3 -m venv .venv
+        .venv/bin/python -m pip install --upgrade pip
+        .venv/bin/pip install -r requirements.lock.txt
+        chown -R ai-rss:ai-rss /opt/ai-RSS-person/.venv
 ENDSSH
 
     log_info "Python 依赖安装完成"
@@ -115,6 +125,8 @@ install_services() {
     scp -P "${SERVER_PORT}" \
         "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-daily.service" \
         "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-daily.timer" \
+        "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-cleanup.service" \
+        "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-cleanup.timer" \
         "${SERVER_USER}@${SERVER_HOST}:/etc/systemd/system/"
 
     # 重载并启用服务
@@ -122,8 +134,11 @@ install_services() {
         systemctl daemon-reload
         systemctl enable ai-rss-daily.timer
         systemctl start ai-rss-daily.timer
+        systemctl enable ai-rss-cleanup.timer
+        systemctl start ai-rss-cleanup.timer
         echo "服务状态:"
         systemctl status ai-rss-daily.timer --no-pager
+        systemctl status ai-rss-cleanup.timer --no-pager
 ENDSSH
 
     log_info "systemd 服务安装完成"
@@ -160,7 +175,7 @@ show_post_deploy_info() {
     echo ""
     echo "3. 手动运行测试:"
     echo "   cd ${REMOTE_PROJECT_DIR}"
-    echo "   python3 daily_report_PRO_cloud.py"
+    echo "   .venv/bin/python daily_report_PRO_cloud.py"
     echo ""
     echo "4. 查看定时任务状态:"
     echo "   systemctl status ai-rss-daily.timer"
