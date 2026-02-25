@@ -436,6 +436,9 @@ CI 也会在 PR 与 `main` 分支推送时执行同样检查：
 
 ## 部署与测试（精简）
 
+部署实录文档：
+- `docs/server-deploy-codex-walkthrough.md`（从 0 到上线的真实排障与命令清单）
+
 ### RSSHub（本地）
 
 ```bash

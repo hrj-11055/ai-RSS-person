@@ -4,8 +4,8 @@ Documentation=https://github.com/your-repo/ai-RSS-person
 Requires=ai-rss-daily.service
 
 [Timer]
-# 每天上午 09:00 执行（北京时间）
-OnCalendar=09:00
+# 每天上午 07:00 执行（北京时间）
+OnCalendar=07:00
 TimeZone=Asia/Shanghai
 # 如果错过执行时间，立即执行
 Persistent=true
