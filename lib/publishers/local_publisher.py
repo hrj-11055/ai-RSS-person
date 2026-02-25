@@ -17,17 +17,14 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from core.utils import setup_logger, get_optional_env
+from core.utils import setup_logger
 from core.utils.constants import (
     DEFAULT_OUTPUT_DIR,
     FILENAME_DATETIME_FORMAT,
 )
 
-# Configuration
-OUTPUT_DIR = get_optional_env("OUTPUT_DIR", DEFAULT_OUTPUT_DIR)
-
 # Setup logger
-logger = setup_logger(__name__, get_optional_env("LOG_LEVEL", "INFO"))
+logger = setup_logger(__name__)
 
 
 class LocalPublisher:
@@ -49,7 +46,7 @@ class LocalPublisher:
         参数：
             output_dir: 保存文件的目录（默认为 OUTPUT_DIR 环境变量）
         """
-        self.output_dir = Path(output_dir or OUTPUT_DIR)
+        self.output_dir = Path(output_dir or DEFAULT_OUTPUT_DIR)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def save_html(

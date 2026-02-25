@@ -397,6 +397,18 @@ MAX_ARTICLES_IN_REPORT=40          # 日报最大文章数
 
 ---
 
+## 配置体系
+
+- 配置优先级：`ENV > core/config.yaml > core/utils/constants.py`
+- 配置入口：仅入口脚本加载 `core/settings.py`，模块通过构造参数接收配置
+- 业务数据：`config/sources.yaml`、`config/weights.yaml`（可通过 `SOURCES_YAML_PATH` / `WEIGHTS_YAML_PATH` 覆盖路径）
+
+兼容说明（过渡 1 个版本）：
+- 旧的 `core.utils.env.get_*_env` 仍可用，但已标记为 deprecated
+- 下一次大版本将移除旧接口直接读取路径
+
+---
+
 ## 开发流程（防止文档漂移）
 
 每次提交前，执行：

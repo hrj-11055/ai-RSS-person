@@ -18,8 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.utils.constants import STRATEGY_RSSHUB, STRATEGY_CFFI, STRATEGY_DIRECT, STRATEGY_NOPROXY
 
 # 设置日志
-from core.utils import setup_logger, get_optional_env
-logger = setup_logger(__name__, get_optional_env("LOG_LEVEL", "INFO"))
+from core.utils import setup_logger
+logger = setup_logger(__name__)
 
 
 class ConfigManager:
@@ -40,6 +40,11 @@ class ConfigManager:
         self.config_dir = Path(config_dir)
         self.sources_file = self.config_dir / "sources.yaml"
         self.weights_file = self.config_dir / "weights.yaml"
+
+    def set_config_files(self, sources_file: Path, weights_file: Path):
+        """允许调用方显式指定配置文件路径。"""
+        self.sources_file = Path(sources_file)
+        self.weights_file = Path(weights_file)
 
     def load_sources(self, enabled_only: bool = True) -> List[Dict]:
         """
@@ -224,7 +229,11 @@ class ConfigManager:
 _config_manager = None
 
 
-def get_config_manager() -> ConfigManager:
+def get_config_manager(
+    config_dir: Optional[str] = None,
+    sources_file: Optional[Path] = None,
+    weights_file: Optional[Path] = None,
+) -> ConfigManager:
     """
     获取全局配置管理器实例
 
@@ -233,7 +242,15 @@ def get_config_manager() -> ConfigManager:
     """
     global _config_manager
     if _config_manager is None:
-        _config_manager = ConfigManager()
+        _config_manager = ConfigManager(config_dir=config_dir)
+    elif config_dir:
+        _config_manager = ConfigManager(config_dir=config_dir)
+
+    if sources_file or weights_file:
+        _config_manager.set_config_files(
+            sources_file or _config_manager.sources_file,
+            weights_file or _config_manager.weights_file,
+        )
     return _config_manager
 
 

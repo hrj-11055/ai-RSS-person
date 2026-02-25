@@ -20,7 +20,7 @@ from datetime import timezone, timedelta
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.utils import setup_logger, get_optional_env
+from core.utils import setup_logger
 from core.utils.constants import (
     DEFAULT_RSSHUB_HOST,
     DEFAULT_FETCH_TIMEOUT,
@@ -31,12 +31,8 @@ from core.utils.constants import (
     STRATEGY_NOPROXY,
 )
 
-# 配置
-RSSHUB_HOST = get_optional_env("RSSHUB_HOST", DEFAULT_RSSHUB_HOST)
-PROXY_URL = get_optional_env("PROXY_URL", "")
-
 # 设置日志
-logger = setup_logger(__name__, get_optional_env("LOG_LEVEL", "INFO"))
+logger = setup_logger(__name__)
 
 # 默认请求头
 DEFAULT_HEADERS = {
@@ -206,8 +202,10 @@ class RSSCollector:
         self,
         sources: Optional[List[Dict]] = None,
         proxy_url: Optional[str] = None,
+        rsshub_host: Optional[str] = None,
         max_items_per_source: int = DEFAULT_MAX_ITEMS_PER_SOURCE,
-        time_window_hours: int = 24
+        time_window_hours: int = 24,
+        log_level: str = "INFO",
     ):
         """
         初始化 RSS 收集器。
@@ -219,9 +217,11 @@ class RSSCollector:
             time_window_hours: 只收集这么多小时内的文章
         """
         self.sources = sources or DEFAULT_SOURCES
-        self.proxy_url = proxy_url or PROXY_URL
+        self.proxy_url = proxy_url or ""
+        self.rsshub_host = rsshub_host or DEFAULT_RSSHUB_HOST
         self.max_items_per_source = max_items_per_source
         self.time_window_hours = time_window_hours
+        logger.setLevel(log_level.upper())
 
         # 设置代理
         self.proxies = {"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else {}
@@ -333,16 +333,16 @@ class RSSCollector:
         返回：
             Feed 内容或 None
         """
-        url = f"{RSSHUB_HOST}{route}"
+        url = f"{self.rsshub_host}{route}"
         logger.debug(f"  使用 RSSHub 策略: {url}")
 
         # 判断是否为本地 RSSHub，如果是则不使用代理
         is_local_rsshub = (
-            "localhost" in RSSHUB_HOST or
-            "127.0.0.1" in RSSHUB_HOST or
-            RSSHUB_HOST.startswith("http://192.168.") or
-            RSSHUB_HOST.startswith("http://10.") or
-            RSSHUB_HOST.startswith("http://172.")
+            "localhost" in self.rsshub_host or
+            "127.0.0.1" in self.rsshub_host or
+            self.rsshub_host.startswith("http://192.168.") or
+            self.rsshub_host.startswith("http://10.") or
+            self.rsshub_host.startswith("http://172.")
         )
 
         proxies = None if is_local_rsshub else (self.proxies if self.proxies else None)

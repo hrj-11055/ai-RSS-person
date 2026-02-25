@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from core.utils import setup_logger, get_optional_env
+from core.utils import setup_logger
 from core.utils.constants import (
     DEFAULT_CLOUD_SERVER_HOST,
     DEFAULT_CLOUD_SERVER_PORT,
@@ -28,20 +28,8 @@ from core.utils.constants import (
     UPLOAD_METHOD_FTP,
 )
 
-# Configuration
-CLOUD_SERVER_HOST = get_optional_env("CLOUD_SERVER_HOST", DEFAULT_CLOUD_SERVER_HOST)
-CLOUD_SERVER_PORT = int(get_optional_env("CLOUD_SERVER_PORT", DEFAULT_CLOUD_SERVER_PORT))
-CLOUD_SERVER_USER = get_optional_env("CLOUD_SERVER_USER", DEFAULT_CLOUD_SERVER_USER)
-CLOUD_SERVER_PASSWORD = get_optional_env("CLOUD_SERVER_PASSWORD", "")
-CLOUD_SERVER_KEY_PATH = get_optional_env("CLOUD_SERVER_KEY_PATH", "")
-CLOUD_SERVER_REMOTE_PATH = get_optional_env("CLOUD_SERVER_REMOTE_PATH", DEFAULT_CLOUD_SERVER_REMOTE_PATH)
-CLOUD_SERVER_JSON_REMOTE_PATH = get_optional_env("CLOUD_SERVER_JSON_REMOTE_PATH", DEFAULT_CLOUD_SERVER_JSON_REMOTE_PATH)
-UPLOAD_METHOD = get_optional_env("UPLOAD_METHOD", DEFAULT_UPLOAD_METHOD)
-HTTP_UPLOAD_URL = get_optional_env("HTTP_UPLOAD_URL", "")
-HTTP_UPLOAD_TOKEN = get_optional_env("HTTP_UPLOAD_TOKEN", "")
-
 # Setup logger
-logger = setup_logger(__name__, get_optional_env("LOG_LEVEL", "INFO"))
+logger = setup_logger(__name__)
 
 
 class CloudPublisher:
@@ -63,7 +51,9 @@ class CloudPublisher:
         password: Optional[str] = None,
         key_path: Optional[str] = None,
         remote_path: Optional[str] = None,
-        method: Optional[str] = None
+        method: Optional[str] = None,
+        http_upload_url: Optional[str] = None,
+        http_upload_token: Optional[str] = None,
     ):
         """
         初始化云发布器。
@@ -77,17 +67,17 @@ class CloudPublisher:
             remote_path: 默认远程路径（默认为 CLOUD_SERVER_REMOTE_PATH 环境变量）
             method: 上传方式：sftp、http 或 ftp（默认为 UPLOAD_METHOD 环境变量）
         """
-        self.host = host or CLOUD_SERVER_HOST
-        self.port = port if port is not None else CLOUD_SERVER_PORT
-        self.user = user or CLOUD_SERVER_USER
-        self.password = password or CLOUD_SERVER_PASSWORD
-        self.key_path = key_path or CLOUD_SERVER_KEY_PATH
-        self.remote_path = remote_path or CLOUD_SERVER_REMOTE_PATH
-        self.method = method or UPLOAD_METHOD
+        self.host = host or DEFAULT_CLOUD_SERVER_HOST
+        self.port = port if port is not None else DEFAULT_CLOUD_SERVER_PORT
+        self.user = user or DEFAULT_CLOUD_SERVER_USER
+        self.password = password or ""
+        self.key_path = key_path or ""
+        self.remote_path = remote_path or DEFAULT_CLOUD_SERVER_REMOTE_PATH
+        self.method = method or DEFAULT_UPLOAD_METHOD
 
         # HTTP-specific config
-        self.http_upload_url = HTTP_UPLOAD_URL
-        self.http_upload_token = HTTP_UPLOAD_TOKEN
+        self.http_upload_url = http_upload_url or ""
+        self.http_upload_token = http_upload_token or ""
 
     def upload(
         self,

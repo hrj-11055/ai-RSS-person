@@ -17,26 +17,20 @@ from pathlib import Path
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from dotenv import load_dotenv
-from core.utils import get_optional_env
-
-# 加载环境变量
-load_dotenv()
+from core.settings import load_settings
 
 # 导入报告生成器和邮件发送器
 from lib.report_generator import ReportGenerator
 from email_sender import send_daily_report
 
-# 配置
-OUTPUT_DIR = get_optional_env("OUTPUT_DIR", "reports")
-
-
 def main():
     """主函数"""
+    settings = load_settings()
+
     # 获取今天的日期
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     json_filename = f"{today}.json"
-    json_path = os.path.join(OUTPUT_DIR, json_filename)
+    json_path = os.path.join(settings.report.output_dir, json_filename)
 
     # 检查 JSON 文件是否存在
     if not os.path.exists(json_path):
@@ -59,14 +53,14 @@ def main():
 
     # 生成 Markdown 报告
     print("📝 生成 Markdown 报告...")
-    generator = ReportGenerator(output_dir=OUTPUT_DIR)
+    generator = ReportGenerator(output_dir=settings.report.output_dir)
     md_path = generator.save_markdown(articles, f"{today}.md")
 
     print(f"✅ Markdown 报告已生成: {md_path}")
 
     # 发送邮件
     print("📧 发送邮件...")
-    if send_daily_report(md_path):
+    if send_daily_report(md_path, settings=settings):
         print("✅ 邮件发送成功！")
         sys.exit(0)
     else:

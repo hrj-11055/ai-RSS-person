@@ -12,6 +12,66 @@ from dotenv import load_dotenv
 # Load .env file on import
 load_dotenv()
 
+_deprecation_warned = False
+
+
+def _warn_deprecated_fallback():
+    global _deprecation_warned
+    if not _deprecation_warned:
+        print("⚠️ [DEPRECATED] 直接使用 core.utils.env 读取配置将在下一版本移除，请改为 core.settings")
+        _deprecation_warned = True
+
+
+def _try_get_from_settings(key: str):
+    try:
+        from core.settings import get_settings, is_settings_initialized
+    except Exception:
+        return None
+
+    if not is_settings_initialized():
+        return None
+
+    s = get_settings()
+    mapping = {
+        "DEEPSEEK_API_KEY": s.ai.api_key,
+        "DEEPSEEK_BASE_URL": s.ai.base_url,
+        "AI_MODEL": s.ai.model,
+        "RSSHUB_HOST": s.rss.rsshub_host,
+        "PROXY_URL": s.rss.proxy_url,
+        "MAX_ITEMS_PER_SOURCE": str(s.rss.max_items_per_source),
+        "TIME_WINDOW_HOURS": str(s.rss.time_window_hours),
+        "MAX_ARTICLES_IN_REPORT": str(s.report.max_articles_in_report),
+        "OUTPUT_DIR": s.report.output_dir,
+        "LOG_LEVEL": s.logging.level,
+        "UPLOAD_ENABLED": str(s.cloud.enabled).lower(),
+        "CLOUD_SERVER_HOST": s.cloud.host,
+        "CLOUD_SERVER_PORT": str(s.cloud.port),
+        "CLOUD_SERVER_USER": s.cloud.user,
+        "CLOUD_SERVER_PASSWORD": s.cloud.password,
+        "CLOUD_SERVER_KEY_PATH": s.cloud.key_path,
+        "CLOUD_SERVER_REMOTE_PATH": s.cloud.remote_path,
+        "CLOUD_SERVER_JSON_REMOTE_PATH": s.cloud.json_remote_path,
+        "UPLOAD_METHOD": s.cloud.upload_method,
+        "HTTP_UPLOAD_URL": s.cloud.http_upload_url,
+        "HTTP_UPLOAD_TOKEN": s.cloud.http_upload_token,
+        "EMAIL_ENABLED": str(s.email.enabled).lower(),
+        "EMAIL_WHEN_UPLOAD_FAIL": str(s.email.when_upload_fail).lower(),
+        "SMTP_SERVER": s.email.smtp_server,
+        "SMTP_PORT": str(s.email.smtp_port),
+        "SENDER_EMAIL": s.email.sender_email,
+        "SENDER_PASSWORD": s.email.sender_password,
+        "RECEIVER_EMAIL": s.email.receiver_email,
+        "CC_EMAIL": s.email.cc_email,
+        "BCC_EMAIL": s.email.bcc_email,
+        "PIPELINE_CACHE_DIR": s.pipeline.cache_dir,
+        "RESUME_FROM_CACHE": str(s.pipeline.resume_from_cache).lower(),
+        "STAGE_RETRY_COUNT": str(s.pipeline.retry_count),
+        "STAGE_RETRY_DELAY_SECONDS": str(s.pipeline.retry_delay_seconds),
+        "SOURCES_YAML_PATH": str(s.sources_path),
+        "WEIGHTS_YAML_PATH": str(s.weights_path),
+    }
+    return mapping.get(key)
+
 
 def get_required_env(key: str) -> str:
     """
@@ -31,7 +91,10 @@ def get_required_env(key: str) -> str:
         >>> print(api_key)
         'sk-xxxxx'
     """
-    value = os.getenv(key)
+    value = _try_get_from_settings(key)
+    if value is None:
+        _warn_deprecated_fallback()
+        value = os.getenv(key)
     if not value:
         raise ValueError(
             f"❌ 缺少必需的环境变量: {key}\n"
@@ -56,6 +119,10 @@ def get_optional_env(key: str, default: str = "") -> str:
         >>> print(port)
         '8080'
     """
+    value = _try_get_from_settings(key)
+    if value is not None:
+        return str(value)
+    _warn_deprecated_fallback()
     return os.getenv(key, default)
 
 
@@ -75,7 +142,10 @@ def get_int_env(key: str, default: int = 0) -> int:
         >>> print(max_items)
         10
     """
-    value = os.getenv(key)
+    value = _try_get_from_settings(key)
+    if value is None:
+        _warn_deprecated_fallback()
+        value = os.getenv(key)
     if value:
         try:
             return int(value)
@@ -102,7 +172,11 @@ def get_bool_env(key: str, default: bool = False) -> bool:
         >>> print(debug)
         True
     """
-    value = os.getenv(key, "").lower()
+    value = _try_get_from_settings(key)
+    if value is None:
+        _warn_deprecated_fallback()
+        value = os.getenv(key, "")
+    value = str(value).lower()
     if value in ("true", "yes", "1", "on"):
         return True
     elif value in ("false", "no", "0", "off"):
@@ -129,7 +203,10 @@ def get_list_env(key: str, default: Optional[list] = None, separator: str = ",")
     """
     if default is None:
         default = []
-    value = os.getenv(key)
+    value = _try_get_from_settings(key)
+    if value is None:
+        _warn_deprecated_fallback()
+        value = os.getenv(key)
     if value:
         return [item.strip() for item in value.split(separator)]
     return default

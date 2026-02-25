@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 
 # 导入配置管理器
-from core.config_manager import get_config_manager
+from core.config_manager import get_config_manager, ConfigManager
 
 
 # 中文源识别模式
@@ -111,7 +111,12 @@ class ArticleRanker:
         'content_weight': 0.4,
     }
 
-    def __init__(self, use_config: bool = True, config_dir: Optional[str] = None):
+    def __init__(
+        self,
+        use_config: bool = True,
+        config_dir: Optional[str] = None,
+        config_manager: Optional[ConfigManager] = None,
+    ):
         """
         初始化文章排序器
 
@@ -122,7 +127,7 @@ class ArticleRanker:
         self.use_config = use_config
 
         if use_config:
-            self.config_manager = get_config_manager()
+            self.config_manager = config_manager or get_config_manager()
             if config_dir:
                 self.config_manager.config_dir = Path(config_dir)
 

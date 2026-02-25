@@ -15,6 +15,14 @@ from .env import (
 )
 from .cost_tracker import CostTracker
 from .constants import *
+from core.settings import (
+    get_settings,
+    load_settings,
+    validate_settings,
+    set_settings,
+    clear_settings,
+    is_settings_initialized,
+)
 
 __all__ = [
     # Logger
@@ -28,6 +36,13 @@ __all__ = [
     "get_list_env",
     # Cost tracking
     "CostTracker",
+    # Settings
+    "get_settings",
+    "load_settings",
+    "validate_settings",
+    "set_settings",
+    "clear_settings",
+    "is_settings_initialized",
     # Constants (all exported from constants module)
 ]
 

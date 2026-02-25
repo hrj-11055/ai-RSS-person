@@ -34,10 +34,12 @@ def main() -> int:
     constants_path = repo_root / "core" / "utils" / "constants.py"
     sources_path = repo_root / "config" / "sources.yaml"
     readme_path = repo_root / "README.md"
+    env_example_path = repo_root / ".env.example"
 
     constants_text = read_text(constants_path)
     sources_text = read_text(sources_path)
     readme_text = read_text(readme_path)
+    env_example_text = read_text(env_example_path)
 
     max_items = extract_int_constant(constants_text, "DEFAULT_MAX_ITEMS_PER_SOURCE")
     max_articles = extract_int_constant(constants_text, "DEFAULT_MAX_ARTICLES_IN_REPORT")
@@ -53,10 +55,24 @@ def main() -> int:
         (f"README 包含 'config/sources.yaml ({source_total}个RSS源)'", rf"config/sources\.yaml\s*\({source_total}个RSS源\)"),
     ]
 
+    required_env_keys = [
+        "DEEPSEEK_API_KEY",
+        "MAX_ITEMS_PER_SOURCE",
+        "MAX_ARTICLES_IN_REPORT",
+        "UPLOAD_ENABLED",
+        "UPLOAD_METHOD",
+        "EMAIL_ENABLED",
+        "SMTP_SERVER",
+    ]
+
     failed: list[str] = []
     for label, pattern in checks:
         if re.search(pattern, readme_text, flags=re.MULTILINE) is None:
             failed.append(label)
+
+    for key in required_env_keys:
+        if re.search(rf"^{re.escape(key)}=", env_example_text, flags=re.MULTILINE) is None:
+            failed.append(f".env.example 缺少键 {key}")
 
     if failed:
         print("❌ 文档一致性检查失败：")

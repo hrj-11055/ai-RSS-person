@@ -1,12 +1,5 @@
 """
 AI 日报生成器 - 云服务器版本
-
-主要功能：
-1. 从多个 RSS 源采集 AI 行业新闻
-2. 使用智能排序系统筛选重要文章
-3. 对文章标题进行去重
-4. 通过 DeepSeek AI 分析并生成 JSON 格式报告
-5. 上传到云服务器供网站集成使用
 """
 
 import json
@@ -16,10 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from dotenv import load_dotenv
-
-from core.utils import setup_logger, get_required_env, get_optional_env, get_int_env, CostTracker
-from core.utils.constants import *
+from core.utils import setup_logger, CostTracker
 
 from lib.rss_collector import RSSCollector
 from lib.ai_analyzer import AIAnalyzer
@@ -29,57 +19,16 @@ from lib.article_deduplicator import ArticleDeduplicator
 from article_ranker import ArticleRanker
 
 from core.config_manager import get_config_manager
+from core.settings import AppSettings, load_settings, validate_settings, set_settings
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = get_optional_env(name, str(default).lower()).strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+# 先用默认级别初始化，加载配置后会更新级别
+logger = setup_logger(__name__)
 
 
-# ================= ⚙️ 配置区域 (从环境变量读取) =================
-load_dotenv()
-
-DEEPSEEK_API_KEY = get_required_env("DEEPSEEK_API_KEY")
-DEEPSEEK_BASE_URL = get_optional_env("DEEPSEEK_BASE_URL", DEFAULT_AI_BASE_URL)
-
-PROXY_URL = get_optional_env("PROXY_URL", "")
-RSSHUB_HOST = get_optional_env("RSSHUB_HOST", DEFAULT_RSSHUB_HOST)
-
-MAX_ITEMS_PER_SOURCE = get_int_env("MAX_ITEMS_PER_SOURCE", DEFAULT_MAX_ITEMS_PER_SOURCE)
-MAX_ARTICLES_IN_REPORT = get_int_env("MAX_ARTICLES_IN_REPORT", DEFAULT_MAX_ARTICLES_IN_REPORT)
-
-OUTPUT_DIR = get_optional_env("OUTPUT_DIR", DEFAULT_OUTPUT_DIR)
-LOG_LEVEL = get_optional_env("LOG_LEVEL", DEFAULT_LOG_LEVEL)
-
-CLOUD_SERVER_HOST = get_optional_env("CLOUD_SERVER_HOST", DEFAULT_CLOUD_SERVER_HOST)
-CLOUD_SERVER_PORT = get_int_env("CLOUD_SERVER_PORT", DEFAULT_CLOUD_SERVER_PORT)
-CLOUD_SERVER_USER = get_optional_env("CLOUD_SERVER_USER", DEFAULT_CLOUD_SERVER_USER)
-CLOUD_SERVER_PASSWORD = get_optional_env("CLOUD_SERVER_PASSWORD", "")
-CLOUD_SERVER_KEY_PATH = get_optional_env("CLOUD_SERVER_KEY_PATH", "")
-CLOUD_SERVER_REMOTE_PATH = get_optional_env("CLOUD_SERVER_REMOTE_PATH", DEFAULT_CLOUD_SERVER_REMOTE_PATH)
-CLOUD_SERVER_JSON_REMOTE_PATH = get_optional_env("CLOUD_SERVER_JSON_REMOTE_PATH", DEFAULT_CLOUD_SERVER_JSON_REMOTE_PATH)
-
-UPLOAD_METHOD = get_optional_env("UPLOAD_METHOD", DEFAULT_UPLOAD_METHOD)
-HTTP_UPLOAD_URL = get_optional_env("HTTP_UPLOAD_URL", "")
-HTTP_UPLOAD_TOKEN = get_optional_env("HTTP_UPLOAD_TOKEN", "")
-
-# 流水线执行配置
-PIPELINE_CACHE_DIR = get_optional_env("PIPELINE_CACHE_DIR", str(Path(OUTPUT_DIR) / ".pipeline"))
-RESUME_FROM_CACHE = _env_bool("RESUME_FROM_CACHE", True)
-STAGE_RETRY_COUNT = get_int_env("STAGE_RETRY_COUNT", 1)  # 总尝试次数=重试+1
-STAGE_RETRY_DELAY_SECONDS = get_int_env("STAGE_RETRY_DELAY_SECONDS", 3)
-UPLOAD_ENABLED = _env_bool("UPLOAD_ENABLED", True)
-EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", True)
-EMAIL_WHEN_UPLOAD_FAIL = _env_bool("EMAIL_WHEN_UPLOAD_FAIL", False)
-
-logger = setup_logger(level=LOG_LEVEL)
-
-
-# ================= 🔧 自动更新 RSSHub 代理 IP =================
 def update_rsshub_proxy_ip():
     """
-    自动获取 OrbStack bridge100 IP 并更新 docker-compose.yml 中的 PROXY_URI
-    这样 RSSHub 容器可以正确访问宿主机的代理服务
+    自动获取 OrbStack bridge100 IP 并更新 docker-compose.yml 中的 PROXY_URI。
     """
     import subprocess
     import re
@@ -89,7 +38,7 @@ def update_rsshub_proxy_ip():
             ["ifconfig", "bridge100"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         if result.returncode == 0:
@@ -117,7 +66,7 @@ def update_rsshub_proxy_ip():
         new_content = re.sub(
             r"PROXY_URI=http://\d+\.\d+\.\d+\.\d+",
             f"PROXY_URI=http://{new_ip}",
-            content
+            content,
         )
         compose_file.write_text(new_content)
         logger.info(f"🔄 已更新 docker-compose.yml 中的代理 IP: {new_ip}")
@@ -128,7 +77,7 @@ def update_rsshub_proxy_ip():
                 capture_output=True,
                 text=True,
                 timeout=60,
-                cwd=compose_file.parent
+                cwd=compose_file.parent,
             )
             logger.info("✅ RSSHub 容器已重启")
             time.sleep(5)
@@ -151,46 +100,58 @@ def update_rsshub_proxy_ip():
 class AI_Daily_Report:
     """AI 日报生成器主类"""
 
-    def __init__(self):
-        if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.startswith("your_"):
-            raise ValueError("❌ DeepSeek API Key 未配置！请在 .env 文件中设置 DEEPSEEK_API_KEY")
+    def __init__(self, settings: AppSettings):
+        self.settings = settings
 
-        config_manager = get_config_manager()
+        logger.setLevel(settings.logging.level.upper())
+
+        config_manager = get_config_manager(
+            sources_file=settings.sources_path,
+            weights_file=settings.weights_path,
+        )
         sources = config_manager.get_enabled_sources()
         logger.info(f"📡 已加载 {len(sources)} 个启用的 RSS 源")
 
-        self.ranker = ArticleRanker()
+        self.ranker = ArticleRanker(config_manager=config_manager)
         self.deduplicator = ArticleDeduplicator(config_manager=config_manager)
         self.cost_tracker = CostTracker()
 
         self.collector = RSSCollector(
             sources=sources,
-            proxy_url=PROXY_URL,
-            max_items_per_source=MAX_ITEMS_PER_SOURCE,
-            time_window_hours=24,
+            proxy_url=settings.rss.proxy_url,
+            rsshub_host=settings.rss.rsshub_host,
+            max_items_per_source=settings.rss.max_items_per_source,
+            time_window_hours=settings.rss.time_window_hours,
+            log_level=settings.logging.level,
         )
 
-        self.analyzer = AIAnalyzer(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+        self.analyzer = AIAnalyzer(
+            api_key=settings.ai.api_key,
+            base_url=settings.ai.base_url,
+            model=settings.ai.model,
+        )
 
         self.cloud_publisher = CloudPublisher(
-            host=CLOUD_SERVER_HOST,
-            port=CLOUD_SERVER_PORT,
-            user=CLOUD_SERVER_USER,
-            password=CLOUD_SERVER_PASSWORD,
-            key_path=CLOUD_SERVER_KEY_PATH,
-            remote_path=CLOUD_SERVER_REMOTE_PATH,
-            method=UPLOAD_METHOD,
+            host=settings.cloud.host,
+            port=settings.cloud.port,
+            user=settings.cloud.user,
+            password=settings.cloud.password,
+            key_path=settings.cloud.key_path,
+            remote_path=settings.cloud.remote_path,
+            method=settings.cloud.upload_method,
+            http_upload_url=settings.cloud.http_upload_url,
+            http_upload_token=settings.cloud.http_upload_token,
         )
 
-        self.local_publisher = LocalPublisher(output_dir=OUTPUT_DIR)
+        self.local_publisher = LocalPublisher(output_dir=settings.report.output_dir)
 
-        if PROXY_URL:
-            logger.info(f"✅ 代理已配置: {PROXY_URL}")
+        if settings.rss.proxy_url:
+            logger.info(f"✅ 代理已配置: {settings.rss.proxy_url}")
         else:
             logger.info("ℹ️ 未配置代理，使用直连")
 
     def _run_with_retry(self, stage_name: str, fn: Callable[[], Any], retryable: bool = True) -> Any:
-        attempts = STAGE_RETRY_COUNT + 1 if retryable else 1
+        attempts = self.settings.pipeline.retry_count + 1 if retryable else 1
         last_error = None
         for attempt in range(1, attempts + 1):
             try:
@@ -199,7 +160,7 @@ class AI_Daily_Report:
                 last_error = e
                 logger.warning(f"⚠️ 阶段 {stage_name} 失败 (attempt {attempt}/{attempts}): {str(e)[:120]}")
                 if attempt < attempts:
-                    time.sleep(STAGE_RETRY_DELAY_SECONDS)
+                    time.sleep(self.settings.pipeline.retry_delay_seconds)
 
         raise RuntimeError(f"阶段 {stage_name} 最终失败: {last_error}")
 
@@ -221,7 +182,7 @@ class AI_Daily_Report:
         runner: Callable[[], Any],
         retryable: bool = True,
     ) -> Any:
-        if RESUME_FROM_CACHE and cache_path.exists():
+        if self.settings.pipeline.resume_from_cache and cache_path.exists():
             logger.info(f"♻️ 阶段 {stage_name}: 使用缓存 {cache_path}")
             return self._load_json(cache_path)
 
@@ -279,7 +240,7 @@ class AI_Daily_Report:
     def run(self):
         try:
             date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            pipeline_dir = Path(PIPELINE_CACHE_DIR)
+            pipeline_dir = Path(self.settings.pipeline.cache_dir)
             pipeline_dir.mkdir(parents=True, exist_ok=True)
             pipeline_state = pipeline_dir / f"{date_str}_state.json"
             collected_cache = pipeline_dir / f"{date_str}_collected.json"
@@ -316,7 +277,7 @@ class AI_Daily_Report:
                 ranked_cache,
                 lambda: self.ranker.rank_articles_with_chinese_quota(
                     deduped_items,
-                    top_n=MAX_ARTICLES_IN_REPORT,
+                    top_n=self.settings.report.max_articles_in_report,
                     chinese_quota=10,
                 ),
                 retryable=False,
@@ -334,8 +295,8 @@ class AI_Daily_Report:
             self._update_pipeline_state(pipeline_state, "analyze", "success", f"items={len(articles_data)}")
 
             logger.info("\n💾 正在保存到本地 JSON 文件...")
-            local_json_path = Path(OUTPUT_DIR) / f"{date_str}.json"
-            if RESUME_FROM_CACHE and local_json_path.exists():
+            local_json_path = Path(self.settings.report.output_dir) / f"{date_str}.json"
+            if self.settings.pipeline.resume_from_cache and local_json_path.exists():
                 local_file = str(local_json_path)
                 logger.info(f"♻️ 本地 JSON 已存在，跳过重写: {local_file}")
             else:
@@ -350,11 +311,11 @@ class AI_Daily_Report:
             remote_filename = f"{date_str}.json"
             upload_success = False
 
-            if UPLOAD_ENABLED:
+            if self.settings.cloud.enabled:
                 logger.info("\n☁️ 正在上传到云服务器 JSON 目录...")
 
                 def _upload_once() -> bool:
-                    if self.cloud_publisher.upload(local_file, remote_filename, CLOUD_SERVER_JSON_REMOTE_PATH):
+                    if self.cloud_publisher.upload(local_file, remote_filename, self.settings.cloud.json_remote_path):
                         return True
                     raise RuntimeError("upload() returned False")
 
@@ -362,15 +323,20 @@ class AI_Daily_Report:
                     self._run_with_retry("upload", _upload_once, retryable=True)
                     upload_success = True
                     self._update_pipeline_state(pipeline_state, "upload", "success", remote_filename)
-                    logger.info(f"✅ JSON 报告已成功上传到云服务器: {CLOUD_SERVER_HOST}:{CLOUD_SERVER_JSON_REMOTE_PATH}/{remote_filename}")
+                    logger.info(
+                        f"✅ JSON 报告已成功上传到云服务器: "
+                        f"{self.settings.cloud.host}:{self.settings.cloud.json_remote_path}/{remote_filename}"
+                    )
                 except Exception as e:
                     self._update_pipeline_state(pipeline_state, "upload", "failed", str(e)[:200])
                     logger.error(f"❌ 云服务器上传失败: {str(e)[:120]}")
             else:
-                self._update_pipeline_state(pipeline_state, "upload", "skipped", "UPLOAD_ENABLED=false")
-                logger.info("ℹ️ 已跳过上传阶段（UPLOAD_ENABLED=false）")
+                self._update_pipeline_state(pipeline_state, "upload", "skipped", "cloud.enabled=false")
+                logger.info("ℹ️ 已跳过上传阶段（cloud.enabled=false）")
 
-            can_send_email = EMAIL_ENABLED and (upload_success or EMAIL_WHEN_UPLOAD_FAIL or not UPLOAD_ENABLED)
+            can_send_email = self.settings.email.enabled and (
+                upload_success or self.settings.email.when_upload_fail or not self.settings.cloud.enabled
+            )
             if can_send_email:
                 logger.info("\n📧 开始发送邮件...")
                 import subprocess
@@ -396,7 +362,7 @@ class AI_Daily_Report:
                     self._update_pipeline_state(pipeline_state, "email", "failed", str(e)[:200])
                     logger.warning(f"⚠️ 邮件发送失败: {str(e)[:120]}")
             else:
-                reason = "EMAIL_ENABLED=false" if not EMAIL_ENABLED else "upload_failed_and_EMAIL_WHEN_UPLOAD_FAIL=false"
+                reason = "email.disabled" if not self.settings.email.enabled else "upload_failed_and_email_when_upload_fail=false"
                 self._update_pipeline_state(pipeline_state, "email", "skipped", reason)
                 logger.info(f"ℹ️ 已跳过邮件发送阶段（{reason}）")
 
@@ -409,12 +375,18 @@ class AI_Daily_Report:
 
 if __name__ == "__main__":
     try:
+        settings = load_settings()
+        validate_settings(settings)
+        set_settings(settings)
+
+        logger.setLevel(settings.logging.level.upper())
+
         logger.info("=" * 60)
         logger.info("🔍 检查并更新 RSSHub 代理 IP...")
         update_rsshub_proxy_ip()
         logger.info("=" * 60 + "\n")
 
-        bot = AI_Daily_Report()
+        bot = AI_Daily_Report(settings)
         bot.run()
     except ValueError as e:
         logger.error(str(e))

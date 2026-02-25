@@ -18,14 +18,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from dotenv import load_dotenv
-from core.utils import get_required_env, get_optional_env
-
-# 加载环境变量
-load_dotenv()
+from core.settings import AppSettings, load_settings
 
 
 def send_email(
+    settings: AppSettings,
     subject: str,
     html_content: str,
     md_content: str = None,
@@ -44,14 +41,13 @@ def send_email(
         bool: 发送成功返回True，失败返回False
     """
     try:
-        # 从环境变量获取配置
-        smtp_server = get_required_env("SMTP_SERVER")
-        smtp_port = int(get_required_env("SMTP_PORT"))
-        sender_email = get_required_env("SENDER_EMAIL")
-        sender_password = get_required_env("SENDER_PASSWORD")
-        receiver_email = get_required_env("RECEIVER_EMAIL")
-        cc_email = get_optional_env("CC_EMAIL")
-        bcc_email = get_optional_env("BCC_EMAIL")
+        smtp_server = settings.email.smtp_server
+        smtp_port = int(settings.email.smtp_port)
+        sender_email = settings.email.sender_email
+        sender_password = settings.email.sender_password
+        receiver_email = settings.email.receiver_email
+        cc_email = settings.email.cc_email
+        bcc_email = settings.email.bcc_email
 
         # 创建邮件对象
         msg = MIMEMultipart("mixed")
@@ -263,7 +259,7 @@ def md_to_html(md_content: str, title: str) -> str:
     return "\n".join(html_lines)
 
 
-def send_daily_report(md_file_path: str) -> bool:
+def send_daily_report(md_file_path: str, settings: AppSettings) -> bool:
     """
     发送每日AI日报
 
@@ -294,6 +290,7 @@ def send_daily_report(md_file_path: str) -> bool:
 
         # 发送邮件
         return send_email(
+            settings=settings,
             subject=email_subject,
             html_content=html_content,
             md_content=md_content,
@@ -308,15 +305,14 @@ def send_daily_report(md_file_path: str) -> bool:
 if __name__ == "__main__":
     import sys
 
-    # 获取日志级别
-    log_level = get_optional_env("LOG_LEVEL", "INFO")
+    settings = load_settings()
 
     if len(sys.argv) > 1:
         # 命令行指定MD文件
         md_file = sys.argv[1]
     else:
         # 默认发送今天生成的最新MD文件
-        reports_dir = get_optional_env("OUTPUT_DIR", "reports")
+        reports_dir = settings.report.output_dir
         today = datetime.now().strftime("%Y-%m-%d")
 
         # 查找今天的MD文件
@@ -336,7 +332,7 @@ if __name__ == "__main__":
     print(f"📄 准备发送报告: {md_file}")
 
     # 发送邮件
-    if send_daily_report(md_file):
+    if send_daily_report(md_file, settings=settings):
         print("✅ 日报发送成功！")
         sys.exit(0)
     else:

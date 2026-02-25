@@ -18,11 +18,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.utils import setup_logger, get_optional_env
+from core.utils import setup_logger
 from core.config_manager import ConfigManager
 
 # 设置日志
-logger = setup_logger(__name__, get_optional_env("LOG_LEVEL", "INFO"))
+logger = setup_logger(__name__)
 
 
 class ArticleDeduplicator:
