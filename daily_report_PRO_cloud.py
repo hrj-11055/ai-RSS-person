@@ -6,10 +6,20 @@ import json
 import sys
 import datetime
 import time
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
 from core.utils import setup_logger, CostTracker
+from core.utils.observability import (
+    RunMetrics,
+    classify_error,
+    clear_stage,
+    create_run_id,
+    get_run_id,
+    set_run_id,
+    set_stage,
+)
 
 from lib.rss_collector import RSSCollector
 from lib.ai_analyzer import AIAnalyzer
@@ -102,18 +112,21 @@ class AI_Daily_Report:
 
     def __init__(self, settings: AppSettings):
         self.settings = settings
+        self.metrics: RunMetrics | None = None
+        self._last_ranked_items: list[dict] = []
 
         logger.setLevel(settings.logging.level.upper())
 
-        config_manager = get_config_manager(
+        self.config_manager = get_config_manager(
             sources_file=settings.sources_path,
             weights_file=settings.weights_path,
         )
-        sources = config_manager.get_enabled_sources()
+        sources = self.config_manager.get_enabled_sources()
+        self.enabled_source_names = [s.get("name", "") for s in sources]
         logger.info(f"📡 已加载 {len(sources)} 个启用的 RSS 源")
 
-        self.ranker = ArticleRanker(config_manager=config_manager)
-        self.deduplicator = ArticleDeduplicator(config_manager=config_manager)
+        self.ranker = ArticleRanker(config_manager=self.config_manager)
+        self.deduplicator = ArticleDeduplicator(config_manager=self.config_manager)
         self.cost_tracker = CostTracker()
 
         self.collector = RSSCollector(
@@ -150,19 +163,172 @@ class AI_Daily_Report:
         else:
             logger.info("ℹ️ 未配置代理，使用直连")
 
-    def _run_with_retry(self, stage_name: str, fn: Callable[[], Any], retryable: bool = True) -> Any:
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _build_rss_insights(self, ranked_items: list[dict]) -> dict[str, Any]:
+        source_counts: Counter[str] = Counter()
+        source_score_sums: defaultdict[str, float] = defaultdict(float)
+
+        for item in ranked_items:
+            source = item.get("source", "unknown")
+            source_counts[source] += 1
+            source_score_sums[source] += self._safe_float(item.get("score", 0))
+
+        source_weights = getattr(self.ranker, "source_weights", {})
+        top_common = []
+        for source, count in source_counts.most_common(10):
+            weight = int(source_weights.get(source, 60))
+            avg_rank_score = round(source_score_sums[source] / count, 2) if count else 0.0
+            top_common.append(
+                {
+                    "source": source,
+                    "count": count,
+                    "weight": weight,
+                    "avg_rank_score": avg_rank_score,
+                }
+            )
+
+        high_weight_active = [x for x in top_common if x["weight"] >= 85]
+
+        return {
+            "source_counts": dict(source_counts),
+            "top_common_sources": top_common,
+            "high_weight_active_sources": high_weight_active,
+        }
+
+    @staticmethod
+    def _load_history_summaries(pipeline_dir: Path, max_runs: int = 30) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        files = sorted(pipeline_dir.glob("*_run_summary.json"))[-max_runs:]
+        for file in files:
+            try:
+                with file.open("r", encoding="utf-8") as f:
+                    summaries.append(json.load(f))
+            except Exception:
+                continue
+        return summaries
+
+    def _build_source_cleanup_recommendations(self, history_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        total_runs = len(history_summaries)
+        if total_runs < 7:
+            return []
+
+        source_presence: Counter[str] = Counter()
+        source_total_count: Counter[str] = Counter()
+        for summary in history_summaries:
+            rss = summary.get("observability_report", {}).get("rss_insights", {})
+            counts = rss.get("source_counts", {})
+            if not isinstance(counts, dict):
+                continue
+            for source, count in counts.items():
+                c = int(count or 0)
+                if c > 0:
+                    source_presence[source] += 1
+                    source_total_count[source] += c
+
+        source_weights = getattr(self.ranker, "source_weights", {})
+        suggestions = []
+        for source in self.enabled_source_names:
+            weight = int(source_weights.get(source, 60))
+            presence = int(source_presence.get(source, 0))
+            total_items = int(source_total_count.get(source, 0))
+            presence_ratio = (presence / total_runs) if total_runs else 0.0
+
+            # 长期低价值候选: 低权重 + 低出现率 + 低产出
+            if weight <= 65 and presence_ratio <= 0.2 and total_items <= 3:
+                suggestions.append(
+                    {
+                        "source": source,
+                        "weight": weight,
+                        "present_runs": presence,
+                        "total_runs": total_runs,
+                        "total_items": total_items,
+                        "suggestion": "consider_disable_or_remove",
+                    }
+                )
+
+        return sorted(
+            suggestions,
+            key=lambda x: (x["weight"], x["present_runs"], x["total_items"], x["source"]),
+        )[:10]
+
+    @staticmethod
+    def _build_pipeline_history_stats(history_summaries: list[dict[str, Any]]) -> dict[str, Any]:
+        if not history_summaries:
+            return {
+                "sample_runs": 0,
+                "avg_total_duration_ms": 0,
+                "stage_avg_duration_ms": {},
+                "top_error_codes": [],
+            }
+
+        total_durations = []
+        stage_duration: defaultdict[str, list[int]] = defaultdict(list)
+        error_codes: Counter[str] = Counter()
+
+        for summary in history_summaries:
+            total_durations.append(int(summary.get("total_duration_ms", 0) or 0))
+            stages = summary.get("stages", {})
+            if not isinstance(stages, dict):
+                continue
+            for stage_name, detail in stages.items():
+                duration = int(detail.get("duration_ms", 0) or 0)
+                stage_duration[stage_name].append(duration)
+                error_code = detail.get("error_code", "")
+                if error_code:
+                    error_codes[error_code] += 1
+
+        stage_avg = {
+            stage: int(sum(values) / len(values)) if values else 0
+            for stage, values in stage_duration.items()
+        }
+
+        return {
+            "sample_runs": len(history_summaries),
+            "avg_total_duration_ms": int(sum(total_durations) / len(total_durations)) if total_durations else 0,
+            "stage_avg_duration_ms": stage_avg,
+            "top_error_codes": [
+                {"error_code": code, "count": count}
+                for code, count in error_codes.most_common(5)
+            ],
+        }
+
+    def _build_observability_report(self, pipeline_dir: Path, current_summary: dict[str, Any]) -> dict[str, Any]:
+        # 历史统计基于当前写盘前已经存在的 run summary（即“长期”视角）
+        history = self._load_history_summaries(pipeline_dir)
+        rss_insights = self._build_rss_insights(self._last_ranked_items)
+        pipeline_stats = self._build_pipeline_history_stats(history + [current_summary])
+        cleanup_suggestions = self._build_source_cleanup_recommendations(history)
+        return {
+            "rss_insights": rss_insights,
+            "pipeline_stats": pipeline_stats,
+            "cleanup_recommendation_basis_runs": len(history),
+            "cleanup_suggestions": cleanup_suggestions,
+        }
+
+    def _run_with_retry(
+        self,
+        stage_name: str,
+        fn: Callable[[], Any],
+        retryable: bool = True,
+    ) -> tuple[Any, int]:
         attempts = self.settings.pipeline.retry_count + 1 if retryable else 1
         last_error = None
         for attempt in range(1, attempts + 1):
             try:
-                return fn()
+                return fn(), attempt
             except Exception as e:
                 last_error = e
                 logger.warning(f"⚠️ 阶段 {stage_name} 失败 (attempt {attempt}/{attempts}): {str(e)[:120]}")
                 if attempt < attempts:
                     time.sleep(self.settings.pipeline.retry_delay_seconds)
 
-        raise RuntimeError(f"阶段 {stage_name} 最终失败: {last_error}")
+        raise RuntimeError(f"阶段 {stage_name} 最终失败: {last_error}") from last_error
 
     @staticmethod
     def _load_json(path: Path) -> Any:
@@ -182,14 +348,41 @@ class AI_Daily_Report:
         runner: Callable[[], Any],
         retryable: bool = True,
     ) -> Any:
-        if self.settings.pipeline.resume_from_cache and cache_path.exists():
-            logger.info(f"♻️ 阶段 {stage_name}: 使用缓存 {cache_path}")
-            return self._load_json(cache_path)
+        if self.metrics:
+            self.metrics.start_stage(stage_name)
+        set_stage(stage_name)
+        try:
+            if self.settings.pipeline.resume_from_cache and cache_path.exists():
+                logger.info(f"♻️ 阶段 {stage_name}: 使用缓存 {cache_path}")
+                result = self._load_json(cache_path)
+                if self.metrics:
+                    self.metrics.end_stage_success(stage_name, attempts=0)
+                return result
 
-        result = self._run_with_retry(stage_name, runner, retryable=retryable)
-        self._save_json(cache_path, result)
-        logger.info(f"💾 阶段 {stage_name}: 已缓存到 {cache_path}")
-        return result
+            result, attempts = self._run_with_retry(stage_name, runner, retryable=retryable)
+            self._save_json(cache_path, result)
+            logger.info(f"💾 阶段 {stage_name}: 已缓存到 {cache_path}")
+            if self.metrics:
+                self.metrics.end_stage_success(stage_name, attempts=attempts)
+            return result
+        except Exception as e:
+            severity, error_code = classify_error(stage_name, e)
+            if self.metrics:
+                attempts = self.settings.pipeline.retry_count + 1 if retryable else 1
+                self.metrics.end_stage_failure(
+                    stage_name,
+                    attempts=attempts,
+                    error_code=error_code,
+                    severity=severity,
+                    message=str(e),
+                )
+            logger.error(
+                f"❌ 阶段 {stage_name} 失败: {str(e)[:160]}",
+                extra={"error_code": error_code, "severity": severity},
+            )
+            raise
+        finally:
+            clear_stage()
 
     def _update_pipeline_state(self, state_path: Path, stage: str, status: str, detail: str = ""):
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -238,8 +431,16 @@ class AI_Daily_Report:
         return articles_data
 
     def run(self):
+        date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        run_id = get_run_id()
+        if run_id == "-":
+            run_id = create_run_id()
+            set_run_id(run_id)
+
+        self.metrics = RunMetrics(run_id=run_id)
+        set_stage("run")
+
         try:
-            date_str = datetime.datetime.now().strftime("%Y-%m-%d")
             pipeline_dir = Path(self.settings.pipeline.cache_dir)
             pipeline_dir.mkdir(parents=True, exist_ok=True)
             pipeline_state = pipeline_dir / f"{date_str}_state.json"
@@ -256,6 +457,7 @@ class AI_Daily_Report:
                 retryable=True,
             )
             self._update_pipeline_state(pipeline_state, "collect", "success", f"items={len(items)}")
+            self.metrics.set_counter("collected_items", len(items))
 
             if not items:
                 logger.warning("❌ 过去24小时内没有新资讯，任务结束。")
@@ -270,6 +472,7 @@ class AI_Daily_Report:
                 retryable=False,
             )
             self._update_pipeline_state(pipeline_state, "deduplicate", "success", f"items={len(deduped_items)}")
+            self.metrics.set_counter("deduplicated_items", len(deduped_items))
 
             logger.info(f"\n📊 开始智能排序 (共 {len(deduped_items)} 条文章)...")
             ranked_items = self._load_or_run_stage(
@@ -282,7 +485,9 @@ class AI_Daily_Report:
                 ),
                 retryable=False,
             )
+            self._last_ranked_items = ranked_items
             self._update_pipeline_state(pipeline_state, "rank", "success", f"items={len(ranked_items)}")
+            self.metrics.set_counter("ranked_items", len(ranked_items))
             logger.info(f"\n{self.ranker.get_ranking_summary(ranked_items)}")
 
             logger.info(f"\n🤖 开始 AI 分析 (Top {len(ranked_items)} 条)...")
@@ -293,14 +498,40 @@ class AI_Daily_Report:
                 retryable=True,
             )
             self._update_pipeline_state(pipeline_state, "analyze", "success", f"items={len(articles_data)}")
+            self.metrics.set_counter("analyzed_items", len(articles_data))
 
             logger.info("\n💾 正在保存到本地 JSON 文件...")
-            local_json_path = Path(self.settings.report.output_dir) / f"{date_str}.json"
-            if self.settings.pipeline.resume_from_cache and local_json_path.exists():
-                local_file = str(local_json_path)
-                logger.info(f"♻️ 本地 JSON 已存在，跳过重写: {local_file}")
-            else:
-                local_file = self.local_publisher.save_json(articles_data, date_str)
+            if self.metrics:
+                self.metrics.start_stage("local_publish")
+            set_stage("local_publish")
+            try:
+                local_json_path = Path(self.settings.report.output_dir) / f"{date_str}.json"
+                if self.settings.pipeline.resume_from_cache and local_json_path.exists():
+                    local_file = str(local_json_path)
+                    logger.info(f"♻️ 本地 JSON 已存在，跳过重写: {local_file}")
+                    if self.metrics:
+                        self.metrics.end_stage_success("local_publish", attempts=0)
+                else:
+                    local_file = self.local_publisher.save_json(articles_data, date_str)
+                    if self.metrics:
+                        self.metrics.end_stage_success("local_publish", attempts=1)
+            except Exception as e:
+                severity, error_code = classify_error("local_publish", e)
+                if self.metrics:
+                    self.metrics.end_stage_failure(
+                        "local_publish",
+                        attempts=1,
+                        error_code=error_code,
+                        severity=severity,
+                        message=str(e),
+                    )
+                logger.error(
+                    f"❌ 本地保存异常: {str(e)[:120]}",
+                    extra={"error_code": error_code, "severity": severity},
+                )
+                raise
+            finally:
+                clear_stage()
 
             if not local_file:
                 self._update_pipeline_state(pipeline_state, "local_publish", "failed")
@@ -313,6 +544,9 @@ class AI_Daily_Report:
 
             if self.settings.cloud.enabled:
                 logger.info("\n☁️ 正在上传到云服务器 JSON 目录...")
+                if self.metrics:
+                    self.metrics.start_stage("upload")
+                set_stage("upload")
 
                 def _upload_once() -> bool:
                     if self.cloud_publisher.upload(local_file, remote_filename, self.settings.cloud.json_remote_path):
@@ -320,17 +554,36 @@ class AI_Daily_Report:
                     raise RuntimeError("upload() returned False")
 
                 try:
-                    self._run_with_retry("upload", _upload_once, retryable=True)
+                    _, attempts = self._run_with_retry("upload", _upload_once, retryable=True)
                     upload_success = True
+                    if self.metrics:
+                        self.metrics.end_stage_success("upload", attempts=attempts)
                     self._update_pipeline_state(pipeline_state, "upload", "success", remote_filename)
                     logger.info(
                         f"✅ JSON 报告已成功上传到云服务器: "
                         f"{self.settings.cloud.host}:{self.settings.cloud.json_remote_path}/{remote_filename}"
                     )
                 except Exception as e:
+                    severity, error_code = classify_error("upload", e)
+                    if self.metrics:
+                        self.metrics.end_stage_failure(
+                            "upload",
+                            attempts=self.settings.pipeline.retry_count + 1,
+                            error_code=error_code,
+                            severity=severity,
+                            message=str(e),
+                        )
                     self._update_pipeline_state(pipeline_state, "upload", "failed", str(e)[:200])
-                    logger.error(f"❌ 云服务器上传失败: {str(e)[:120]}")
+                    logger.error(
+                        f"❌ 云服务器上传失败: {str(e)[:120]}",
+                        extra={"error_code": error_code, "severity": severity},
+                    )
+                finally:
+                    clear_stage()
             else:
+                if self.metrics:
+                    self.metrics.start_stage("upload")
+                    self.metrics.end_stage_success("upload", attempts=0)
                 self._update_pipeline_state(pipeline_state, "upload", "skipped", "cloud.enabled=false")
                 logger.info("ℹ️ 已跳过上传阶段（cloud.enabled=false）")
 
@@ -340,6 +593,9 @@ class AI_Daily_Report:
             if can_send_email:
                 logger.info("\n📧 开始发送邮件...")
                 import subprocess
+                if self.metrics:
+                    self.metrics.start_stage("email")
+                set_stage("email")
 
                 email_sender_script = Path(__file__).parent / "daily_email_sender.sh"
 
@@ -355,22 +611,56 @@ class AI_Daily_Report:
                     raise RuntimeError(result.stdout or result.stderr or "unknown email error")
 
                 try:
-                    self._run_with_retry("email", _send_once, retryable=True)
+                    _, attempts = self._run_with_retry("email", _send_once, retryable=True)
+                    if self.metrics:
+                        self.metrics.end_stage_success("email", attempts=attempts)
                     self._update_pipeline_state(pipeline_state, "email", "success")
                     logger.info("✅ 邮件发送成功")
                 except Exception as e:
+                    severity, error_code = classify_error("email", e)
+                    if self.metrics:
+                        self.metrics.end_stage_failure(
+                            "email",
+                            attempts=self.settings.pipeline.retry_count + 1,
+                            error_code=error_code,
+                            severity=severity,
+                            message=str(e),
+                        )
                     self._update_pipeline_state(pipeline_state, "email", "failed", str(e)[:200])
-                    logger.warning(f"⚠️ 邮件发送失败: {str(e)[:120]}")
+                    logger.warning(
+                        f"⚠️ 邮件发送失败: {str(e)[:120]}",
+                        extra={"error_code": error_code, "severity": severity},
+                    )
+                finally:
+                    clear_stage()
             else:
                 reason = "email.disabled" if not self.settings.email.enabled else "upload_failed_and_email_when_upload_fail=false"
+                if self.metrics:
+                    self.metrics.start_stage("email")
+                    self.metrics.end_stage_success("email", attempts=0)
                 self._update_pipeline_state(pipeline_state, "email", "skipped", reason)
                 logger.info(f"ℹ️ 已跳过邮件发送阶段（{reason}）")
 
             logger.info(self.analyzer.get_cost_report())
 
         except Exception as e:
-            logger.error(f"❌ 运行出错: {e}")
+            severity, error_code = classify_error("run", e)
+            logger.error(
+                f"❌ 运行出错: {e}",
+                extra={"error_code": error_code, "severity": severity},
+            )
             raise
+        finally:
+            if self.metrics:
+                summary_path = Path(self.settings.pipeline.cache_dir) / f"{date_str}_run_summary.json"
+                summary = self.metrics.summary()
+                summary["observability_report"] = self._build_observability_report(
+                    Path(self.settings.pipeline.cache_dir),
+                    summary,
+                )
+                self._save_json(summary_path, summary)
+                logger.info(f"📈 运行统计已写入: {summary_path}")
+            clear_stage()
 
 
 if __name__ == "__main__":
@@ -378,6 +668,7 @@ if __name__ == "__main__":
         settings = load_settings()
         validate_settings(settings)
         set_settings(settings)
+        set_run_id(create_run_id())
 
         logger.setLevel(settings.logging.level.upper())
 

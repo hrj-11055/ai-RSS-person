@@ -8,6 +8,23 @@ across all modules and scripts.
 import logging
 from typing import Optional
 
+from .observability import get_run_id, get_stage
+
+
+class ObservabilityContextFilter(logging.Filter):
+    """Inject run context fields for consistent structured logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not hasattr(record, "run_id"):
+            record.run_id = get_run_id()
+        if not hasattr(record, "stage"):
+            record.stage = get_stage()
+        if not hasattr(record, "error_code"):
+            record.error_code = "-"
+        if not hasattr(record, "severity"):
+            record.severity = "-"
+        return True
+
 
 def setup_logger(name: str = __name__, level: str = "INFO") -> logging.Logger:
     """
@@ -35,10 +52,13 @@ def setup_logger(name: str = __name__, level: str = "INFO") -> logging.Logger:
 
         # Formatter
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            '%(asctime)s - %(name)s - %(levelname)s - '
+            '[run_id=%(run_id)s stage=%(stage)s err=%(error_code)s sev=%(severity)s] '
+            '%(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         console_handler.setFormatter(formatter)
+        console_handler.addFilter(ObservabilityContextFilter())
 
         logger.addHandler(console_handler)
 
