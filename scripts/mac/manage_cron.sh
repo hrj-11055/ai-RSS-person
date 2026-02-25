@@ -63,7 +63,7 @@ case "$1" in
     test-email)
         echo "🧪 测试邮件发送（需要先生成报告）..."
         cd "$SCRIPT_DIR"
-        /Users/MarkHuang/miniconda3/bin/python3 daily_email_sender.sh
+        /Users/MarkHuang/miniconda3/bin/python3 daily_email_sender.py
         ;;
 
     edit)
