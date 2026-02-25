@@ -6,6 +6,8 @@ import json
 import sys
 import datetime
 import time
+import os
+import fcntl
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
@@ -38,7 +40,7 @@ logger = setup_logger(__name__)
 
 def update_rsshub_proxy_ip():
     """
-    自动获取 OrbStack bridge100 IP 并更新 docker-compose.yml 中的 PROXY_URI。
+    自动获取 OrbStack bridge100 IP 并更新 .env 中的 PROXY_URI。
     """
     import subprocess
     import re
@@ -62,32 +64,45 @@ def update_rsshub_proxy_ip():
             logger.warning("⚠️ bridge100 接口不存在，跳过代理 IP 更新")
             return False
 
-        compose_file = Path(__file__).parent / "docker-compose.yml"
-        if not compose_file.exists():
-            logger.warning("⚠️ docker-compose.yml 不存在，跳过代理 IP 更新")
+        env_file = Path(__file__).parent / ".env"
+        if not env_file.exists():
+            logger.warning("⚠️ .env 不存在，跳过代理 IP 更新")
             return False
 
-        content = compose_file.read_text()
-        current_proxy_match = re.search(r"PROXY_URI=http://(\d+\.\d+\.\d+\.\d+)", content)
-        if current_proxy_match and current_proxy_match.group(1) == new_ip:
+        content = env_file.read_text(encoding="utf-8")
+        expected = f"PROXY_URI=http://{new_ip}:7897"
+
+        if re.search(r"^PROXY_URI=http://\d+\.\d+\.\d+\.\d+:7897$", content, flags=re.MULTILINE):
+            new_content = re.sub(
+                r"^PROXY_URI=http://\d+\.\d+\.\d+\.\d+:7897$",
+                expected,
+                content,
+                flags=re.MULTILINE,
+            )
+        elif re.search(r"^PROXY_URI=", content, flags=re.MULTILINE):
+            new_content = re.sub(
+                r"^PROXY_URI=.*$",
+                expected,
+                content,
+                flags=re.MULTILINE,
+            )
+        else:
+            new_content = content.rstrip() + f"\n{expected}\n"
+
+        if new_content == content:
             logger.info(f"✅ 代理 IP 无需更新: {new_ip}")
             return True
 
-        new_content = re.sub(
-            r"PROXY_URI=http://\d+\.\d+\.\d+\.\d+",
-            f"PROXY_URI=http://{new_ip}",
-            content,
-        )
-        compose_file.write_text(new_content)
-        logger.info(f"🔄 已更新 docker-compose.yml 中的代理 IP: {new_ip}")
+        env_file.write_text(new_content, encoding="utf-8")
+        logger.info(f"🔄 已更新 .env 中的代理 IP: {new_ip}")
 
         try:
             subprocess.run(
-                ["docker-compose", "-f", str(compose_file), "restart", "rsshub"],
+                ["docker", "compose", "restart", "rsshub"],
                 capture_output=True,
                 text=True,
                 timeout=60,
-                cwd=compose_file.parent,
+                cwd=Path(__file__).parent,
             )
             logger.info("✅ RSSHub 容器已重启")
             time.sleep(5)
@@ -105,6 +120,36 @@ def update_rsshub_proxy_ip():
     except Exception as e:
         logger.warning(f"⚠️ 更新代理 IP 时出错: {e}")
         return False
+
+
+class FileLock:
+    """Single-instance process lock based on flock."""
+
+    def __init__(self, path: str):
+        self.path = Path(path)
+        self._fd = None
+
+    def acquire(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._fd = open(self.path, "w", encoding="utf-8")
+        try:
+            fcntl.flock(self._fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            self._fd.close()
+            self._fd = None
+            raise RuntimeError(f"lock already held: {self.path}") from e
+        self._fd.seek(0)
+        self._fd.truncate()
+        self._fd.write(f"{os.getpid()}\n")
+        self._fd.flush()
+
+    def release(self):
+        if self._fd:
+            try:
+                fcntl.flock(self._fd.fileno(), fcntl.LOCK_UN)
+            finally:
+                self._fd.close()
+                self._fd = None
 
 
 class AI_Daily_Report:
@@ -597,7 +642,7 @@ class AI_Daily_Report:
                     self.metrics.start_stage("email")
                 set_stage("email")
 
-                email_sender_script = Path(__file__).parent / "daily_email_sender.sh"
+                email_sender_script = Path(__file__).parent / "daily_email_sender.py"
 
                 def _send_once() -> bool:
                     result = subprocess.run(
@@ -672,13 +717,29 @@ if __name__ == "__main__":
 
         logger.setLevel(settings.logging.level.upper())
 
-        logger.info("=" * 60)
-        logger.info("🔍 检查并更新 RSSHub 代理 IP...")
-        update_rsshub_proxy_ip()
-        logger.info("=" * 60 + "\n")
+        lock = FileLock(settings.pipeline.lock_file)
+        try:
+            lock.acquire()
+        except RuntimeError:
+            logger.warning(
+                f"⚠️ 检测到已有运行实例，跳过本次执行: {settings.pipeline.lock_file}",
+                extra={"error_code": "E_ALREADY_RUNNING", "severity": "LOW"},
+            )
+            sys.exit(0)
 
-        bot = AI_Daily_Report(settings)
-        bot.run()
+        try:
+            if settings.rss.enable_proxy_ip_update:
+                logger.info("=" * 60)
+                logger.info("🔍 检查并更新 RSSHub 代理 IP...")
+                update_rsshub_proxy_ip()
+                logger.info("=" * 60 + "\n")
+            else:
+                logger.info("ℹ️ 已跳过代理 IP 自动更新（ENABLE_PROXY_IP_UPDATE=false）")
+
+            bot = AI_Daily_Report(settings)
+            bot.run()
+        finally:
+            lock.release()
     except ValueError as e:
         logger.error(str(e))
         sys.exit(1)

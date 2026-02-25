@@ -40,6 +40,7 @@ def _try_get_from_settings(key: str):
         "PROXY_URL": s.rss.proxy_url,
         "MAX_ITEMS_PER_SOURCE": str(s.rss.max_items_per_source),
         "TIME_WINDOW_HOURS": str(s.rss.time_window_hours),
+        "ENABLE_PROXY_IP_UPDATE": str(s.rss.enable_proxy_ip_update).lower(),
         "MAX_ARTICLES_IN_REPORT": str(s.report.max_articles_in_report),
         "OUTPUT_DIR": s.report.output_dir,
         "LOG_LEVEL": s.logging.level,
@@ -67,6 +68,7 @@ def _try_get_from_settings(key: str):
         "RESUME_FROM_CACHE": str(s.pipeline.resume_from_cache).lower(),
         "STAGE_RETRY_COUNT": str(s.pipeline.retry_count),
         "STAGE_RETRY_DELAY_SECONDS": str(s.pipeline.retry_delay_seconds),
+        "PIPELINE_LOCK_FILE": str(s.pipeline.lock_file),
         "SOURCES_YAML_PATH": str(s.sources_path),
         "WEIGHTS_YAML_PATH": str(s.weights_path),
     }

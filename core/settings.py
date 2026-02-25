@@ -47,6 +47,7 @@ class RSSSettings:
     proxy_url: str = ""
     max_items_per_source: int = DEFAULT_MAX_ITEMS_PER_SOURCE
     time_window_hours: int = 24
+    enable_proxy_ip_update: bool = False
 
 
 @dataclass
@@ -89,6 +90,7 @@ class PipelineSettings:
     resume_from_cache: bool = True
     retry_count: int = 1
     retry_delay_seconds: int = 3
+    lock_file: str = "/tmp/ai-rss-daily.lock"
 
 
 @dataclass
@@ -166,6 +168,7 @@ def load_settings() -> AppSettings:
     proxy_url = os.getenv("PROXY_URL", "")
     max_items = _to_int(os.getenv("MAX_ITEMS_PER_SOURCE"), _to_int(_get_cfg(yaml_cfg, "rss.max_items_per_source"), DEFAULT_MAX_ITEMS_PER_SOURCE))
     time_window = _to_int(os.getenv("TIME_WINDOW_HOURS"), _to_int(_get_cfg(yaml_cfg, "rss.time_window_hours"), 24))
+    enable_proxy_ip_update = _to_bool(os.getenv("ENABLE_PROXY_IP_UPDATE"), False)
 
     output_dir = os.getenv("OUTPUT_DIR", _get_cfg(yaml_cfg, "directories.output_dir", DEFAULT_OUTPUT_DIR))
     max_articles = _to_int(
@@ -200,6 +203,7 @@ def load_settings() -> AppSettings:
     resume_from_cache = _to_bool(os.getenv("RESUME_FROM_CACHE"), True)
     retry_count = _to_int(os.getenv("STAGE_RETRY_COUNT"), 1)
     retry_delay = _to_int(os.getenv("STAGE_RETRY_DELAY_SECONDS"), 3)
+    pipeline_lock_file = os.getenv("PIPELINE_LOCK_FILE", "/tmp/ai-rss-daily.lock")
 
     log_level = os.getenv("LOG_LEVEL", _get_cfg(yaml_cfg, "logging.level", DEFAULT_LOG_LEVEL))
 
@@ -213,6 +217,7 @@ def load_settings() -> AppSettings:
             proxy_url=proxy_url,
             max_items_per_source=max_items,
             time_window_hours=time_window,
+            enable_proxy_ip_update=enable_proxy_ip_update,
         ),
         report=ReportSettings(output_dir=output_dir, max_articles_in_report=max_articles),
         cloud=CloudSettings(
@@ -244,6 +249,7 @@ def load_settings() -> AppSettings:
             resume_from_cache=resume_from_cache,
             retry_count=retry_count,
             retry_delay_seconds=retry_delay,
+            lock_file=pipeline_lock_file,
         ),
         logging=LoggingSettings(level=log_level),
         sources_path=sources_path,

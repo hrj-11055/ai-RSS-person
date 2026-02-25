@@ -96,6 +96,22 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.pipeline.retry_count, 2)
         self.assertFalse(settings.pipeline.resume_from_cache)
 
+    @patch.dict(
+        os.environ,
+        {
+            "DEEPSEEK_API_KEY": "test_key",
+            "ENABLE_PROXY_IP_UPDATE": "true",
+            "PIPELINE_LOCK_FILE": "/tmp/custom-ai-rss.lock",
+            "EMAIL_ENABLED": "false",
+            "UPLOAD_ENABLED": "false",
+        },
+        clear=False,
+    )
+    def test_runtime_control_flags(self):
+        settings = load_settings()
+        self.assertTrue(settings.rss.enable_proxy_ip_update)
+        self.assertEqual(settings.pipeline.lock_file, "/tmp/custom-ai-rss.lock")
+
 
 if __name__ == "__main__":
     unittest.main()
