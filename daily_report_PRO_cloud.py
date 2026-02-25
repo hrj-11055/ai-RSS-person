@@ -8,6 +8,7 @@ import datetime
 import time
 import os
 import fcntl
+import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
@@ -441,6 +442,19 @@ class AI_Daily_Report:
         state[stage] = {"status": status, "time": now, "detail": detail}
         self._save_json(state_path, state)
 
+    def _copy_report_to_local_target(self, local_file: str, date_str: str) -> str:
+        target_dir = (self.settings.report.local_target_dir or "").strip()
+        if not target_dir:
+            return ""
+
+        dst_dir = Path(target_dir)
+        dst_dir.mkdir(parents=True, exist_ok=True)
+
+        src_json = Path(local_file)
+        dst_json = dst_dir / f"{date_str}.json"
+        shutil.copy2(src_json, dst_json)
+        return str(dst_json)
+
     def _analyze_ranked_items(self, ranked_items: list[dict]) -> list[dict]:
         articles_data = []
         successful_count = 0
@@ -583,6 +597,41 @@ class AI_Daily_Report:
                 logger.error("❌ 本地保存失败，任务结束")
                 return
             self._update_pipeline_state(pipeline_state, "local_publish", "success", local_file)
+
+            local_target = (self.settings.report.local_target_dir or "").strip()
+            if local_target:
+                if self.metrics:
+                    self.metrics.start_stage("local_copy")
+                set_stage("local_copy")
+                try:
+                    copied_to = self._copy_report_to_local_target(local_file, date_str)
+                    self._update_pipeline_state(pipeline_state, "local_copy", "success", copied_to)
+                    if self.metrics:
+                        self.metrics.end_stage_success("local_copy", attempts=1)
+                    logger.info(f"✅ 已复制报告到目标目录: {copied_to}")
+                except Exception as e:
+                    severity, error_code = classify_error("local_copy", e)
+                    self._update_pipeline_state(pipeline_state, "local_copy", "failed", str(e)[:200])
+                    if self.metrics:
+                        self.metrics.end_stage_failure(
+                            "local_copy",
+                            attempts=1,
+                            error_code=error_code,
+                            severity=severity,
+                            message=str(e),
+                        )
+                    logger.error(
+                        f"❌ 复制报告到目标目录失败: {str(e)[:120]}",
+                        extra={"error_code": error_code, "severity": severity},
+                    )
+                    raise
+                finally:
+                    clear_stage()
+            else:
+                self._update_pipeline_state(pipeline_state, "local_copy", "skipped", "LOCAL_TARGET_DIR empty")
+                if self.metrics:
+                    self.metrics.start_stage("local_copy")
+                    self.metrics.end_stage_success("local_copy", attempts=0)
 
             remote_filename = f"{date_str}.json"
             upload_success = False

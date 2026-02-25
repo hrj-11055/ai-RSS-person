@@ -112,6 +112,20 @@ class TestSettings(unittest.TestCase):
         self.assertTrue(settings.rss.enable_proxy_ip_update)
         self.assertEqual(settings.pipeline.lock_file, "/tmp/custom-ai-rss.lock")
 
+    @patch.dict(
+        os.environ,
+        {
+            "DEEPSEEK_API_KEY": "test_key",
+            "LOCAL_TARGET_DIR": "/tmp/ai-rss-target",
+            "EMAIL_ENABLED": "false",
+            "UPLOAD_ENABLED": "false",
+        },
+        clear=False,
+    )
+    def test_local_target_dir(self):
+        settings = load_settings()
+        self.assertEqual(settings.report.local_target_dir, "/tmp/ai-rss-target")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,7 @@ class TestPipelineE2E(unittest.TestCase):
         self.output_dir = Path(self.tmpdir.name) / "reports"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.pipeline_dir = self.output_dir / ".pipeline"
+        self.deploy_dir = Path(self.tmpdir.name) / "target"
 
         project_root = Path(__file__).resolve().parent.parent
         self.settings = AppSettings(
@@ -45,6 +46,7 @@ class TestPipelineE2E(unittest.TestCase):
             report=ReportSettings(
                 output_dir=str(self.output_dir),
                 max_articles_in_report=5,
+                local_target_dir=str(self.deploy_dir),
             ),
             cloud=CloudSettings(enabled=False),
             email=EmailSettings(enabled=False),
@@ -111,6 +113,7 @@ class TestPipelineE2E(unittest.TestCase):
         today = datetime.now().strftime("%Y-%m-%d")
         output_json = self.output_dir / f"{today}.json"
         self.assertTrue(output_json.exists(), "应生成本地 JSON 报告")
+        self.assertTrue((self.deploy_dir / f"{today}.json").exists(), "应复制到 LOCAL_TARGET_DIR")
 
         report = json.loads(output_json.read_text(encoding="utf-8"))
         self.assertIn("articles", report)

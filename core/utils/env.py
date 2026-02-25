@@ -43,6 +43,7 @@ def _try_get_from_settings(key: str):
         "ENABLE_PROXY_IP_UPDATE": str(s.rss.enable_proxy_ip_update).lower(),
         "MAX_ARTICLES_IN_REPORT": str(s.report.max_articles_in_report),
         "OUTPUT_DIR": s.report.output_dir,
+        "LOCAL_TARGET_DIR": s.report.local_target_dir,
         "LOG_LEVEL": s.logging.level,
         "UPLOAD_ENABLED": str(s.cloud.enabled).lower(),
         "CLOUD_SERVER_HOST": s.cloud.host,

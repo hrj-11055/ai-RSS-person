@@ -54,6 +54,7 @@ class RSSSettings:
 class ReportSettings:
     output_dir: str = DEFAULT_OUTPUT_DIR
     max_articles_in_report: int = DEFAULT_MAX_ARTICLES_IN_REPORT
+    local_target_dir: str = ""
 
 
 @dataclass
@@ -171,6 +172,7 @@ def load_settings() -> AppSettings:
     enable_proxy_ip_update = _to_bool(os.getenv("ENABLE_PROXY_IP_UPDATE"), False)
 
     output_dir = os.getenv("OUTPUT_DIR", _get_cfg(yaml_cfg, "directories.output_dir", DEFAULT_OUTPUT_DIR))
+    local_target_dir = os.getenv("LOCAL_TARGET_DIR", _get_cfg(yaml_cfg, "directories.local_target_dir", ""))
     max_articles = _to_int(
         os.getenv("MAX_ARTICLES_IN_REPORT"),
         _to_int(_get_cfg(yaml_cfg, "ranking.max_articles_in_report"), DEFAULT_MAX_ARTICLES_IN_REPORT),
@@ -219,7 +221,11 @@ def load_settings() -> AppSettings:
             time_window_hours=time_window,
             enable_proxy_ip_update=enable_proxy_ip_update,
         ),
-        report=ReportSettings(output_dir=output_dir, max_articles_in_report=max_articles),
+        report=ReportSettings(
+            output_dir=output_dir,
+            max_articles_in_report=max_articles,
+            local_target_dir=local_target_dir,
+        ),
         cloud=CloudSettings(
             enabled=cloud_enabled,
             host=cloud_host,
