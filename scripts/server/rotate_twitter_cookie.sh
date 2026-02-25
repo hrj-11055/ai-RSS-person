@@ -1,7 +1,7 @@
 #!/bin/bash
 # Rotate Twitter auth credentials used by RSSHub.
 # Reads a raw Cookie header string from a secure local file,
-# extracts auth_token + ct0, updates .env, and restarts rsshub.
+# extracts auth_token + ct0, updates .env, and restarts rsshub service.
 
 set -euo pipefail
 
@@ -52,6 +52,10 @@ main() {
   local source_file
   source_file="$(get_env_value TWITTER_COOKIE_SOURCE_FILE)"
   source_file="${source_file:-$COOKIE_SOURCE_FILE_DEFAULT}"
+  local rsshub_restart_cmd rsshub_service_name rsshub_pm2_name
+  rsshub_restart_cmd="$(get_env_value RSSHUB_RESTART_CMD)"
+  rsshub_service_name="$(get_env_value RSSHUB_SERVICE_NAME)"
+  rsshub_pm2_name="$(get_env_value RSSHUB_PM2_NAME)"
 
   if [ ! -f "$source_file" ]; then
     log "ERROR: cookie source file not found: $source_file"
@@ -90,13 +94,19 @@ main() {
 
   log "INFO: cookie rotated, restarting rsshub"
   cd "$PROJECT_DIR"
-  docker compose up -d rsshub
 
-  sleep 5
-  if ! docker ps --format '{{.Names}}' | grep -q '^rss-person-rsshub$'; then
-    log "ERROR: rsshub container is not running after restart"
+  if [ -n "$rsshub_restart_cmd" ]; then
+    bash -lc "$rsshub_restart_cmd"
+  elif [ -n "$rsshub_service_name" ] && systemctl list-unit-files | grep -q "^${rsshub_service_name}"; then
+    systemctl restart "$rsshub_service_name"
+  elif [ -n "$rsshub_pm2_name" ] && command -v pm2 >/dev/null 2>&1; then
+    pm2 restart "$rsshub_pm2_name"
+  else
+    log "ERROR: no restart method configured (set RSSHUB_RESTART_CMD or RSSHUB_SERVICE_NAME)"
     exit 1
   fi
+
+  sleep 5
 
   # Lightweight runtime check: route should be reachable (status 200 expected)
   if curl -fsS --max-time 20 "http://localhost:1200/twitter/user/OpenAI" >/dev/null 2>&1; then

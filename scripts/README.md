@@ -17,7 +17,7 @@ scripts/
 ├── mac/                    # macOS 专用脚本
 │   ├── update_twitter_cookie.sh    # 更新 Twitter Cookie
 │   ├── manage_cron.sh             # 管理 cron 任务
-│   └── daily_report_with_docker_check.sh  # 带 Docker 检查的日报生成
+│   └── daily_report_with_docker_check.sh  # 兼容旧文件名（实际执行 npm/service 检查）
 │
 └── server/                 # 服务器专用脚本
     ├── start-rsshub-server.sh      # 启动 RSSHub

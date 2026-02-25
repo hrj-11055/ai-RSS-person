@@ -98,14 +98,37 @@ def update_rsshub_proxy_ip():
         logger.info(f"🔄 已更新 .env 中的代理 IP: {new_ip}")
 
         try:
-            subprocess.run(
-                ["docker", "compose", "restart", "rsshub"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                cwd=Path(__file__).parent,
-            )
-            logger.info("✅ RSSHub 容器已重启")
+            restart_cmd = os.getenv("RSSHUB_RESTART_CMD", "").strip()
+            service_name = os.getenv("RSSHUB_SERVICE_NAME", "").strip()
+            pm2_name = os.getenv("RSSHUB_PM2_NAME", "").strip()
+
+            if restart_cmd:
+                subprocess.run(
+                    ["bash", "-lc", restart_cmd],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    cwd=Path(__file__).parent,
+                )
+            elif service_name:
+                subprocess.run(
+                    ["systemctl", "restart", service_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+            elif pm2_name:
+                subprocess.run(
+                    ["pm2", "restart", pm2_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+            else:
+                logger.warning("⚠️ 未配置 RSSHub 重启命令（RSSHUB_RESTART_CMD / RSSHUB_SERVICE_NAME）")
+                return True
+
+            logger.info("✅ RSSHub 服务已重启")
             time.sleep(5)
         except Exception as e:
             logger.warning(f"⚠️ RSSHub 重启失败: {e}")

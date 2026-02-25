@@ -1,7 +1,6 @@
 [Unit]
 Description=AI RSS Twitter Cookie Rotate
-After=network-online.target docker.service
-Wants=docker.service
+After=network-online.target
 
 [Service]
 Type=oneshot

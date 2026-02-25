@@ -1,8 +1,7 @@
 [Unit]
 Description=AI RSS Daily Report Generator
 Documentation=https://github.com/your-repo/ai-RSS-person
-After=network-online.target docker.service
-Wants=docker.service
+After=network-online.target
 
 [Service]
 Type=oneshot

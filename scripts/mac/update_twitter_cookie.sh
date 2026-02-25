@@ -1,88 +1,86 @@
 #!/bin/bash
-#
-# 更新 RSSHub Twitter Cookie 并重启容器
-#
-# 使用方法:
-#   1. 从浏览器复制最新的 Twitter Cookie
-#   2. 运行: ./update_twitter_cookie.sh
-#   3. 粘贴 Cookie（按 Ctrl+D 结束输入）
-#
+# 更新 .env 中 Twitter Cookie 字段并重启 RSSHub（npm/systemd/pm2）
 
-set -e
+set -euo pipefail
 
-DOCKER_COMPOSE_FILE="docker-compose.yml"
-BACKUP_FILE="docker-compose.yml.backup"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="${ROOT_DIR}/.env"
+
+get_env() {
+  local key="$1"
+  if [ -f "$ENV_FILE" ]; then
+    grep -E "^${key}=" "$ENV_FILE" | tail -n1 | cut -d '=' -f2- || true
+  fi
+}
+
+set_env() {
+  local key="$1"
+  local value="$2"
+  touch "$ENV_FILE"
+  if grep -qE "^${key}=" "$ENV_FILE"; then
+    sed -i '' "s|^${key}=.*$|${key}=${value}|" "$ENV_FILE" 2>/dev/null || sed -i "s|^${key}=.*$|${key}=${value}|" "$ENV_FILE"
+  else
+    echo "${key}=${value}" >> "$ENV_FILE"
+  fi
+}
+
+extract_field() {
+  local cookie="$1"
+  local field="$2"
+  echo "$cookie" | sed 's/; /;/g' | tr ';' '\n' | sed 's/^ *//;s/ *$//' | grep -E "^${field}=" | head -n1 | cut -d '=' -f2-
+}
+
+restart_rsshub() {
+  local restart_cmd service_name pm2_name
+  restart_cmd="$(get_env RSSHUB_RESTART_CMD)"
+  service_name="$(get_env RSSHUB_SERVICE_NAME)"
+  pm2_name="$(get_env RSSHUB_PM2_NAME)"
+
+  if [ -n "$restart_cmd" ]; then
+    bash -lc "$restart_cmd"
+    return
+  fi
+  if [ -n "$service_name" ] && systemctl list-unit-files | grep -q "^${service_name}"; then
+    systemctl restart "$service_name"
+    return
+  fi
+  if [ -n "$pm2_name" ] && command -v pm2 >/dev/null 2>&1; then
+    pm2 restart "$pm2_name"
+    return
+  fi
+  echo "⚠️ 未配置 RSSHub 重启命令（RSSHUB_RESTART_CMD / RSSHUB_SERVICE_NAME）"
+}
 
 echo "============================================================"
-echo "🍪 Twitter Cookie 更新工具"
+echo "🍪 Twitter Cookie 更新工具（npm版）"
 echo "============================================================"
-echo ""
 
-# 备份当前配置
-echo "📦 备份当前配置..."
-cp "$DOCKER_COMPOSE_FILE" "$BACKUP_FILE"
-echo "✅ 已备份到 $BACKUP_FILE"
-echo ""
+echo "请粘贴完整 Cookie（包含 auth_token 和 ct0，结束后 Ctrl+D）："
+RAW_COOKIE="$(cat)"
 
-# 获取新的 Cookie
-echo "📋 请从浏览器复制最新的 Twitter Cookie"
-echo "   访问 https://twitter.com → F12 → Network → Headers → cookie"
-echo ""
-echo "粘贴新的 Cookie（完成后按 Ctrl+D）："
-echo ""
-
-# 读取用户输入
-NEW_COOKIE=$(cat)
-
-if [ -z "$NEW_COOKIE" ]; then
-    echo "❌ Cookie 为空，未更新"
-    exit 1
+if [ -z "$RAW_COOKIE" ]; then
+  echo "❌ Cookie 为空"
+  exit 1
 fi
 
-echo ""
-echo "✅ 已读取 Cookie（长度: ${#NEW_COOKIE} 字符）"
-echo ""
+AUTH_TOKEN="$(extract_field "$RAW_COOKIE" auth_token)"
+CT0="$(extract_field "$RAW_COOKIE" ct0)"
 
-# 更新 docker-compose.yml 中的 TWITTER_COOKIE
-echo "🔄 更新 $DOCKER_COMPOSE_FILE ..."
-
-# 使用 sed 替换 TWITTER_COOKIE 的值
-# macOS 和 Linux 的 sed 语法不同，需要判断
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
-    sed -i '' "s|TWITTER_COOKIE=.*|TWITTER_COOKIE=$NEW_COOKIE|g" "$DOCKER_COMPOSE_FILE"
-else
-    # Linux
-    sed -i "s|TWITTER_COOKIE=.*|TWITTER_COOKIE=$NEW_COOKIE|g" "$DOCKER_COMPOSE_FILE"
+if [ -z "$AUTH_TOKEN" ] || [ -z "$CT0" ]; then
+  echo "❌ 无法从 Cookie 中提取 auth_token/ct0"
+  exit 1
 fi
 
-echo "✅ 已更新 TWITTER_COOKIE"
-echo ""
+set_env "TWITTER_AUTH_TOKEN" "$AUTH_TOKEN"
+set_env "TWITTER_CT0" "$CT0"
 
-# 重启 RSSHub 容器
-echo "🔄 重启 RSSHub 容器..."
-docker-compose restart rsshub
+echo "✅ 已更新 .env 中 TWITTER_AUTH_TOKEN / TWITTER_CT0"
 
-echo ""
-echo "⏳ 等待容器启动（5秒）..."
-sleep 5
+restart_rsshub
+sleep 3
 
-# 检查容器状态
-if docker ps | grep -q "rss-person-rsshub"; then
-    echo "✅ RSSHub 容器已启动"
-    echo ""
-    echo "============================================================"
-    echo "🎉 更新完成！"
-    echo "============================================================"
-    echo ""
-    echo "测试命令："
-    echo "  python3 test_rsshub_sources.py"
-    echo ""
+if curl -fsS --max-time 20 "http://localhost:1200/twitter/user/OpenAI" >/dev/null 2>&1; then
+  echo "✅ Twitter 路由验证成功"
 else
-    echo "❌ RSSHub 容器启动失败"
-    echo "恢复备份..."
-    cp "$BACKUP_FILE" "$DOCKER_COMPOSE_FILE"
-    docker-compose restart rsshub
-    echo "已恢复到之前的配置"
-    exit 1
+  echo "⚠️ Twitter 路由验证失败（可能是临时限流/认证问题）"
 fi

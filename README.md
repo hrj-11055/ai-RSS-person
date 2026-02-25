@@ -19,7 +19,8 @@ cp .env.example .env
 vim .env  # 设置 DEEPSEEK_API_KEY
 
 # 启动 RSSHub
-docker compose up -d
+# 示例：npm/systemd 方式启动（按你的服务器配置）
+bash scripts/server/start-rsshub-server.sh
 
 # 运行日报生成
 python daily_report_PRO_cloud.py
@@ -118,8 +119,8 @@ python daily_report_PRO_cloud.py
 │  │  start-rsshub.sh 执行流程:                                           │   │
 │  │                                                                      │   │
 │  │  1. ifconfig bridge100           ──▶  获取 OrbStack 网桥 IP          │   │
-│  │  2. sed docker-compose.yml      ──▶  更新 PROXY_URI 环境变量        │   │
-│  │  3. docker-compose restart      ──▶  重启 rsshub 容器应用新代理      │   │
+│  │  2. 更新 .env 中 PROXY_URI      ──▶  应用代理配置                     │   │
+│  │  3. 执行 RSSHUB_RESTART_CMD     ──▶  重启 rsshub 服务                │   │
 │  │  4. sleep 5                     ──▶  等待服务就绪                    │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────────┬────────────────────────────────────────┘
@@ -368,7 +369,7 @@ ai-RSS-person/
 ├── daily_report_PRO_cloud.py  # 主程序入口
 ├── email_sender.py            # 邮件发送
 ├── start-rsshub.sh            # RSSHub 启动脚本
-└── docker-compose.yml         # Docker 服务
+└── scripts/server/            # 服务器运维脚本
 ```
 
 ---
