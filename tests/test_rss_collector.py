@@ -30,7 +30,7 @@ class TestRSSCollector(unittest.TestCase):
 
         self.assertEqual(len(collector.sources), 2)
         self.assertIsNotNone(collector.headers)
-        self.assertEqual(collector.max_items_per_source, 5)
+        self.assertEqual(collector.max_items_per_source, 7)
         self.assertEqual(collector.time_window_hours, 24)
 
     def test_collector_default_sources(self):
@@ -72,19 +72,20 @@ class TestRSSCollector(unittest.TestCase):
         mock_get.return_value = mock_403
 
         collector = RSSCollector(sources=self.test_sources)
-
-        # 由于 cffi 不可用，应该返回 None
-        result = collector._fetch_direct("https://example.com/rss")
-        self.assertIsNone(result)
+        with patch.object(collector, "_fetch_cffi", return_value=None) as mock_cffi:
+            result = collector._fetch_direct("https://example.com/rss")
+            self.assertIsNone(result)
+            mock_cffi.assert_called_once_with("https://example.com/rss")
 
     def test_time_window_filtering(self):
         """测试时间窗口过滤"""
         collector = RSSCollector(sources=self.test_sources)
 
         # 创建一个模拟的 entry（最近的文章）
+        recent_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=2)
         recent_entry = Mock()
         recent_entry.get = Mock(side_effect=lambda k, d=None: (
-            datetime.datetime(2026, 2, 11, 10, 0, 0).timetuple() if k in ['published_parsed', 'updated_parsed'] else d
+            recent_time.timetuple() if k in ['published_parsed', 'updated_parsed'] else d
         ))
 
         # 应该通过时间窗口过滤
@@ -92,7 +93,7 @@ class TestRSSCollector(unittest.TestCase):
 
         # 创建一个旧的 entry（超过24小时）
         old_entry = Mock()
-        old_time = datetime.datetime.now() - datetime.timedelta(hours=30)
+        old_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=30)
         old_entry.get = Mock(side_effect=lambda k, d=None: (
             old_time.timetuple() if k in ['published_parsed', 'updated_parsed'] else d
         ))
@@ -101,14 +102,14 @@ class TestRSSCollector(unittest.TestCase):
         self.assertFalse(collector._is_within_time_window(old_entry))
 
     def test_time_window_no_date(self):
-        """测试没有日期的文章（应该接受）"""
+        """测试没有日期的文章（应该跳过）"""
         collector = RSSCollector(sources=self.test_sources)
 
         entry = Mock()
         entry.get = Mock(return_value=None)
 
-        # 没有日期的文章应该被接受
-        self.assertTrue(collector._is_within_time_window(entry))
+        # 没有日期的文章应被跳过
+        self.assertFalse(collector._is_within_time_window(entry))
 
     @patch('lib.rss_collector.feedparser.parse')
     def test_parse_feed_success(self, mock_parse):
@@ -120,7 +121,7 @@ class TestRSSCollector(unittest.TestCase):
         mock_entry.link = "https://example.com/article1"
         mock_entry.summary = "Test description"
         # Mock get method to return proper values
-        published_time = datetime.datetime(2026, 2, 11, 10, 0, 0).timetuple()
+        published_time = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).timetuple()
         mock_entry.get = Mock(side_effect=lambda k, d=None: published_time if k in ['published_parsed', 'updated_parsed'] else d)
 
         mock_feed.entries = [mock_entry]

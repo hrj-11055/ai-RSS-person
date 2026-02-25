@@ -131,19 +131,19 @@ sources:
   # ========== 中文媒体 ==========
   - name: 阮一峰博客
     url: https://www.ruanyifeng.com/blog/atom.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 少数派
     url: https://sspai.com/feed
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 机器之心
     url: https://www.jiqizhixin.com/rss
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
@@ -181,49 +181,49 @@ sources:
   # ========== 中文媒体 (微信公众号 RSS) ==========
   - name: AI前线
     url: https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_b7682654f4a3.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 新智元
     url: https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_108f2a2a27f4.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 深科技
     url: https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_27c43c799b0c.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: AI科技评论
     url: https://raw.githubusercontent.com/osnsyc/Wechat-Scholar/main/channels/gh_6ca2fbc2df6e.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 智东西
     url: https://wechat2rss.bestblogs.dev/feed/cfd52b4245ca6119b2fda4ef934832c689028927.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 逛逛GitHub
     url: https://wechat2rss.bestblogs.dev/feed/38be32e5376d852c13d3383e4d7a757fd9a55ff6.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 赛博禅心
     url: https://wechat2rss.bestblogs.dev/feed/752c31ca0446b837339463fc5440539e20267d2f.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 
   - name: 夕小瑶科技说
     url: https://wechat2rss.xlab.app/feed/a1cd365aa14ed7d64cabfc8aa086da40ecaba34d.xml
-    strategy: direct
+    strategy: noproxy
     enabled: true
     category: 中文媒体
 

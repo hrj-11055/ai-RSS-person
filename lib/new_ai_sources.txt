@@ -1,0 +1,85 @@
+# AI RSS 新增源列表
+# 从 awesome-AI-feeds 项目添加
+
+# --- 🤖 AI 研究与博客 ---
+
+# 1. AI Roadmap Institute
+{"name": "AI Roadmap", "url": "https://medium.com/feed/ai-roadmap-institute", "strategy": "STRATEGY_DIRECT"},
+
+# 2. Machine Learning Mastery
+{"name": "Machine Learning Mastery", "url": "http://machinelearningmastery.com/blog/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 3. Microsoft Machine Learning
+{"name": "Microsoft ML", "url": "https://blogs.technet.microsoft.com/machinelearning/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 4. AWS Machine Learning
+{"name": "AWS ML", "url": "https://aws.amazon.com/blogs/ai/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 5. DataRobot
+{"name": "DataRobot", "url": "https://www.datarobot.com/blog/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 6. Google DeepMind
+{"name": "DeepMind", "url": "https://deepmind.com/blog/feed/basic", "strategy": "STRATEGY_DIRECT"},
+
+# 7. Singularity
+{"name": "Singularity", "url": "https://www.singularityweblog.com/blog/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 8. Marketing AI Institute
+{"name": "Marketing AI", "url": "http://www.marketingaiinstitute.com/blog/rss.xml", "strategy": "STRATEGY_DIRECT"},
+
+# 9. DatumBox
+{"name": "DatumBox", "url": "http://blog.datumbox.com/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 10. AI Resources
+{"name": "AI Resources", "url": "http://airesources.blogspot.com/feeds/posts/default?alt=rss", "strategy": "STRATEGY_DIRECT"},
+
+# 11. Computational Intelligence
+{"name": "Computational Intelligence", "url": "http://computationalintelligence.blogspot.com/feeds/posts/default", "strategy": "STRATEGY_DIRECT"},
+
+# 12. AI Weirdness
+{"name": "AI Weirdness", "url": "http://aiweirdness.com/rss", "strategy": "STRATEGY_DIRECT"},
+
+# 13. Becoming Human
+{"name": "Becoming Human", "url": "https://becominghuman.ai/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 14. KD Nuggets
+{"name": "KD Nuggets", "url": "https://www.kdnuggets.com/tag/recent-neural-networks/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 15. Hackaday Neural
+{"name": "Hackaday Neural", "url": "https://hackaday.com/tag/neural-network/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 16. Distill Pub
+{"name": "Distill", "url": "https://distill.pub/rss.xml", "strategy": "STRATEGY_DIRECT"},
+
+# 17. Unsupervised Thinking
+{"name": "Unsupervised", "url": "http://unsupervisedthinkingpodcast.blogspot.com/feeds/posts/default?alt=rss", "strategy": "STRATEGY_DIRECT"},
+
+# 18. Computational Biology
+{"name": "CompBio", "url": "https://computationalbiologyblog.com/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 19. Leeds Neural Networks
+{"name": "LeedsNeural", "url": "https://leedsneuralnetworks.wordpress.com/blog/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 20. Paper.space
+{"name": "Paperspace", "url": "https://blog.paperspace.com/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 21. Scibite
+{"name": "Scibite", "url": "https://www.scibite.com/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 22. DiscoverText
+{"name": "DiscoverText", "url": "https://discovertext.com/blog/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 23. MachineThinkNet
+{"name": "MachineThinkNet", "url": "http://machinethink.net/blog/index.xml", "strategy": "STRATEGY_DIRECT"},
+
+# 24. Provalis Research
+{"name": "Provalis", "url": "https://provalisresearch.com/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 25. ArchieAI
+{"name": "ArchieAI", "url": "https://medium.com/feed/archieai", "strategy": "STRATEGY_DIRECT"},
+
+# 26. Yoshua Bengio
+{"name": "Yoshua Bengu", "url": "https://yoshuabengu.com/feed", "strategy": "STRATEGY_DIRECT"},
+
+# 27. Quertle
+{"name": "Quertle", "url": "http://quertle.com/blog/feed", "strategy": "STRATEGY_DIRECT"},

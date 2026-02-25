@@ -152,13 +152,20 @@ class ArticleRanker:
         """
         score = 0.0
 
-        # 1. 来源权重评分
-        source_weight_percent = self.scoring_config.get('source_weight', 0.6)
-        score += self._calculate_source_score(item) * source_weight_percent / 60 * 60
+        # 1. 读取可配置权重并归一化，避免总权重不为 1 时评分异常
+        source_weight_percent = float(self.scoring_config.get('source_weight', 0.6) or 0.0)
+        content_weight_percent = float(self.scoring_config.get('content_weight', 0.4) or 0.0)
+        total_weight = source_weight_percent + content_weight_percent
+        if total_weight <= 0:
+            source_weight_percent, content_weight_percent = 0.6, 0.4
+            total_weight = 1.0
 
-        # 2. 内容相关性评分
-        content_weight_percent = self.scoring_config.get('content_weight', 0.4)
-        score += self._calculate_relevance_score(item) * content_weight_percent / 40 * 40
+        # 2. 将两个子分数按配置映射到 100 分制
+        source_max_points = 100.0 * (source_weight_percent / total_weight)
+        content_max_points = 100.0 * (content_weight_percent / total_weight)
+
+        score += (self._calculate_source_score(item) / 60.0) * source_max_points
+        score += (self._calculate_relevance_score(item) / 40.0) * content_max_points
 
         return round(score, 2)
 
