@@ -11,6 +11,8 @@
 ```bash
 # 安装依赖
 pip install -r requirements.txt
+# 生产环境建议使用锁定版本
+# pip install -r requirements.lock.txt
 
 # 配置环境变量
 cp .env.example .env
@@ -152,8 +154,8 @@ python daily_report_PRO_cloud.py
 │  │  5. 权重选择 ──▶  保留高权重源的文章                                │   │
 │  │                                                                      │   │
 │  │  示例:                                                               │   │
-│  │  "OpenAI发布GPT-5"         (机器之心, 权重90)  ◄── 保留            │   │
-│  │  "OpenAI发布GPT-5 | AI突破" (量子位, 权重96)   ◄── 保留            │   │
+│  │  "OpenAI发布GPT-5"         (机器之心, 权重90)  ◄── 不保留            │   │
+│  │  "OpenAI发布GPT-5 | AI突破" (量子位, 权重96)   ◄── 不保留            │   │
 │  │  "OpenAI今天发布GPT-5"      (新智元, 权重97)   ◄── 保留            │   │
 │  │                                                                      │   │
 │  │  输出: ~150-250 条去重后文章                                       │   │
@@ -451,6 +453,10 @@ curl "http://localhost:1200/twitter/user/OpenAI"
 systemctl status ai-rss-daily.timer
 systemctl list-timers ai-rss-daily.timer
 
+# 清理定时器状态（产物保留治理）
+systemctl status ai-rss-cleanup.timer
+systemctl list-timers ai-rss-cleanup.timer
+
 # 服务日志
 journalctl -u ai-rss-daily.service -f
 ```
@@ -463,6 +469,9 @@ python3 -m unittest discover tests -v
 
 # 文档一致性检查
 python3 scripts/dev/check_docs_consistency.py
+
+# CI 同款仿真烟测（假数据 E2E）
+bash scripts/dev/ci_smoke.sh
 ```
 
 ---

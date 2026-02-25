@@ -1,0 +1,12 @@
+[Unit]
+Description=AI RSS Artifact Cleanup Timer
+Requires=ai-rss-cleanup.service
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+TimeZone=Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

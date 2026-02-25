@@ -23,6 +23,9 @@ scripts/
     ├── start-rsshub-server.sh      # 启动 RSSHub
     ├── ai-rss-daily.service        # systemd 服务配置
     ├── ai-rss-daily.timer          # systemd 定时器配置
+    ├── ai-rss-cleanup.service      # 产物清理服务
+    ├── ai-rss-cleanup.timer        # 产物清理定时器
+    ├── cleanup_artifacts.sh        # 清理历史报告与缓存
     ├── deploy.sh                   # 一键部署脚本
     └── health-check.sh             # 健康检查脚本
 ```
@@ -66,6 +69,9 @@ systemctl status ai-rss-daily.timer
 
 # 查看下次执行时间
 systemctl list-timers ai-rss-daily.timer
+
+# 查看清理定时器状态
+systemctl status ai-rss-cleanup.timer
 
 # 查看日志
 journalctl -u ai-rss-daily.service -f
