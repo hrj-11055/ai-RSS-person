@@ -19,7 +19,7 @@ from openai import OpenAI
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.utils import setup_logger, get_required_env, get_optional_env
+from core.utils import setup_logger, get_optional_env
 from core.utils.cost_tracker import CostTracker
 from core.utils.constants import (
     DEFAULT_AI_MODEL,
@@ -29,7 +29,7 @@ from core.utils.constants import (
 )
 
 # 配置
-DEEPSEEK_API_KEY = get_required_env("DEEPSEEK_API_KEY")
+DEEPSEEK_API_KEY = get_optional_env("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = get_optional_env("DEEPSEEK_BASE_URL", DEFAULT_AI_BASE_URL)
 
 # 设置日志
@@ -179,6 +179,8 @@ class AIAnalyzer:
             timeout: 请求超时时间（秒）
         """
         self.api_key = api_key or DEEPSEEK_API_KEY
+        if not self.api_key:
+            raise ValueError("❌ DeepSeek API Key 未配置！请设置 DEEPSEEK_API_KEY")
         self.base_url = base_url or DEEPSEEK_BASE_URL
         self.model = model
         self.timeout = timeout

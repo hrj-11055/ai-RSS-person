@@ -5,28 +5,22 @@ AI 日报生成器 - 云服务器版本
 1. 从多个 RSS 源采集 AI 行业新闻
 2. 使用智能排序系统筛选重要文章
 3. 对文章标题进行去重
-3. 通过 DeepSeek AI 分析并生成 JSON 格式报告
-4. 上传到云服务器供网站集成使用
-5. 将来直接在服务器上部署，就不需要上传到云服务器，本来就在云服务器上了。
-Author: AI-RSS-PERSON Team
-Version: 2.0.0
+4. 通过 DeepSeek AI 分析并生成 JSON 格式报告
+5. 上传到云服务器供网站集成使用
 """
 
-import os
+import json
 import sys
 import datetime
 import time
-import logging
 from pathlib import Path
+from typing import Any, Callable
 
-# 导入共享工具
 from dotenv import load_dotenv
 
-# 导入 core/utils 工具
 from core.utils import setup_logger, get_required_env, get_optional_env, get_int_env, CostTracker
 from core.utils.constants import *
 
-# 导入 lib 模块
 from lib.rss_collector import RSSCollector
 from lib.ai_analyzer import AIAnalyzer
 from lib.publishers.cloud_publisher import CloudPublisher
@@ -34,35 +28,29 @@ from lib.publishers.local_publisher import LocalPublisher
 from lib.article_deduplicator import ArticleDeduplicator
 from article_ranker import ArticleRanker
 
-# 导入配置管理器
 from core.config_manager import get_config_manager
 
-# ================= ⚙️ 配置区域 (从环境变量读取) =================
 
-# 1. DeepSeek 配置 (从环境变量读取，必需)
+def _env_bool(name: str, default: bool) -> bool:
+    raw = get_optional_env(name, str(default).lower()).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+# ================= ⚙️ 配置区域 (从环境变量读取) =================
 load_dotenv()
+
 DEEPSEEK_API_KEY = get_required_env("DEEPSEEK_API_KEY")
 DEEPSEEK_BASE_URL = get_optional_env("DEEPSEEK_BASE_URL", DEFAULT_AI_BASE_URL)
 
-# 2. 网络代理 (可选)
 PROXY_URL = get_optional_env("PROXY_URL", "")
-
-# 3. RSSHub配置（用于Twitter等需要RSSHub的源）
 RSSHUB_HOST = get_optional_env("RSSHUB_HOST", DEFAULT_RSSHUB_HOST)
 
-# 4. 抓取设置
 MAX_ITEMS_PER_SOURCE = get_int_env("MAX_ITEMS_PER_SOURCE", DEFAULT_MAX_ITEMS_PER_SOURCE)
-
-# 5. 报告设置
 MAX_ARTICLES_IN_REPORT = get_int_env("MAX_ARTICLES_IN_REPORT", DEFAULT_MAX_ARTICLES_IN_REPORT)
 
-# 6. 本地保存目录配置
 OUTPUT_DIR = get_optional_env("OUTPUT_DIR", DEFAULT_OUTPUT_DIR)
-
-# 7. 日志级别
 LOG_LEVEL = get_optional_env("LOG_LEVEL", DEFAULT_LOG_LEVEL)
 
-# 8. 云服务器配置
 CLOUD_SERVER_HOST = get_optional_env("CLOUD_SERVER_HOST", DEFAULT_CLOUD_SERVER_HOST)
 CLOUD_SERVER_PORT = get_int_env("CLOUD_SERVER_PORT", DEFAULT_CLOUD_SERVER_PORT)
 CLOUD_SERVER_USER = get_optional_env("CLOUD_SERVER_USER", DEFAULT_CLOUD_SERVER_USER)
@@ -71,14 +59,19 @@ CLOUD_SERVER_KEY_PATH = get_optional_env("CLOUD_SERVER_KEY_PATH", "")
 CLOUD_SERVER_REMOTE_PATH = get_optional_env("CLOUD_SERVER_REMOTE_PATH", DEFAULT_CLOUD_SERVER_REMOTE_PATH)
 CLOUD_SERVER_JSON_REMOTE_PATH = get_optional_env("CLOUD_SERVER_JSON_REMOTE_PATH", DEFAULT_CLOUD_SERVER_JSON_REMOTE_PATH)
 
-# 9. 上传方式
 UPLOAD_METHOD = get_optional_env("UPLOAD_METHOD", DEFAULT_UPLOAD_METHOD)
-
-# 10. HTTP上传配置（如果使用HTTP方式）
 HTTP_UPLOAD_URL = get_optional_env("HTTP_UPLOAD_URL", "")
 HTTP_UPLOAD_TOKEN = get_optional_env("HTTP_UPLOAD_TOKEN", "")
 
-# 初始化日志
+# 流水线执行配置
+PIPELINE_CACHE_DIR = get_optional_env("PIPELINE_CACHE_DIR", str(Path(OUTPUT_DIR) / ".pipeline"))
+RESUME_FROM_CACHE = _env_bool("RESUME_FROM_CACHE", True)
+STAGE_RETRY_COUNT = get_int_env("STAGE_RETRY_COUNT", 1)  # 总尝试次数=重试+1
+STAGE_RETRY_DELAY_SECONDS = get_int_env("STAGE_RETRY_DELAY_SECONDS", 3)
+UPLOAD_ENABLED = _env_bool("UPLOAD_ENABLED", True)
+EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", True)
+EMAIL_WHEN_UPLOAD_FAIL = _env_bool("EMAIL_WHEN_UPLOAD_FAIL", False)
+
 logger = setup_logger(level=LOG_LEVEL)
 
 
@@ -92,7 +85,6 @@ def update_rsshub_proxy_ip():
     import re
 
     try:
-        # 方法1: 获取 bridge100 的 IP
         result = subprocess.run(
             ["ifconfig", "bridge100"],
             capture_output=True,
@@ -101,8 +93,7 @@ def update_rsshub_proxy_ip():
         )
 
         if result.returncode == 0:
-            # 从 ifconfig 输出中提取 IP 地址
-            match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', result.stdout)
+            match = re.search(r"inet\s+(\d+\.\d+\.\d+\.\d+)", result.stdout)
             if match:
                 new_ip = match.group(1)
             else:
@@ -112,34 +103,25 @@ def update_rsshub_proxy_ip():
             logger.warning("⚠️ bridge100 接口不存在，跳过代理 IP 更新")
             return False
 
-        # 读取 docker-compose.yml
         compose_file = Path(__file__).parent / "docker-compose.yml"
         if not compose_file.exists():
             logger.warning("⚠️ docker-compose.yml 不存在，跳过代理 IP 更新")
             return False
 
         content = compose_file.read_text()
+        current_proxy_match = re.search(r"PROXY_URI=http://(\d+\.\d+\.\d+\.\d+)", content)
+        if current_proxy_match and current_proxy_match.group(1) == new_ip:
+            logger.info(f"✅ 代理 IP 无需更新: {new_ip}")
+            return True
 
-        # 检查是否需要更新
-        current_proxy_match = re.search(r'PROXY_URI=http://(\d+\.\d+\.\d+\.\d+)', content)
-        if current_proxy_match:
-            current_ip = current_proxy_match.group(1)
-            if current_ip == new_ip:
-                logger.info(f"✅ 代理 IP 无需更新: {new_ip}")
-                return True
-
-        # 更新 PROXY_URI
         new_content = re.sub(
-            r'PROXY_URI=http://\d+\.\d+\.\d+\.\d+',
-            f'PROXY_URI=http://{new_ip}',
+            r"PROXY_URI=http://\d+\.\d+\.\d+\.\d+",
+            f"PROXY_URI=http://{new_ip}",
             content
         )
-
-        # 写回文件
         compose_file.write_text(new_content)
         logger.info(f"🔄 已更新 docker-compose.yml 中的代理 IP: {new_ip}")
 
-        # 重启 RSSHub 容器使新配置生效
         try:
             subprocess.run(
                 ["docker-compose", "-f", str(compose_file), "restart", "rsshub"],
@@ -149,7 +131,6 @@ def update_rsshub_proxy_ip():
                 cwd=compose_file.parent
             )
             logger.info("✅ RSSHub 容器已重启")
-            # 等待 RSSHub 启动
             time.sleep(5)
         except Exception as e:
             logger.warning(f"⚠️ RSSHub 重启失败: {e}")
@@ -167,42 +148,30 @@ def update_rsshub_proxy_ip():
         return False
 
 
-# ================= 🤖 AI 日报生成器 =================
 class AI_Daily_Report:
     """AI 日报生成器主类"""
 
     def __init__(self):
-        """初始化 AI 日报生成器"""
-        # 验证 API 密钥
         if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.startswith("your_"):
             raise ValueError("❌ DeepSeek API Key 未配置！请在 .env 文件中设置 DEEPSEEK_API_KEY")
 
-        # 从 YAML 配置文件加载 RSS 源
         config_manager = get_config_manager()
         sources = config_manager.get_enabled_sources()
-
         logger.info(f"📡 已加载 {len(sources)} 个启用的 RSS 源")
 
-        # 初始化组件
         self.ranker = ArticleRanker()
         self.deduplicator = ArticleDeduplicator(config_manager=config_manager)
         self.cost_tracker = CostTracker()
 
-        # 初始化 RSS 收集器
         self.collector = RSSCollector(
             sources=sources,
             proxy_url=PROXY_URL,
             max_items_per_source=MAX_ITEMS_PER_SOURCE,
-            time_window_hours=24
+            time_window_hours=24,
         )
 
-        # 初始化 AI 分析器
-        self.analyzer = AIAnalyzer(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL
-        )
+        self.analyzer = AIAnalyzer(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
-        # 初始化云发布器
         self.cloud_publisher = CloudPublisher(
             host=CLOUD_SERVER_HOST,
             port=CLOUD_SERVER_PORT,
@@ -210,123 +179,227 @@ class AI_Daily_Report:
             password=CLOUD_SERVER_PASSWORD,
             key_path=CLOUD_SERVER_KEY_PATH,
             remote_path=CLOUD_SERVER_REMOTE_PATH,
-            method=UPLOAD_METHOD
+            method=UPLOAD_METHOD,
         )
 
-        # 初始化本地发布器
         self.local_publisher = LocalPublisher(output_dir=OUTPUT_DIR)
 
-        # 代理配置日志
         if PROXY_URL:
             logger.info(f"✅ 代理已配置: {PROXY_URL}")
         else:
             logger.info("ℹ️ 未配置代理，使用直连")
 
+    def _run_with_retry(self, stage_name: str, fn: Callable[[], Any], retryable: bool = True) -> Any:
+        attempts = STAGE_RETRY_COUNT + 1 if retryable else 1
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return fn()
+            except Exception as e:
+                last_error = e
+                logger.warning(f"⚠️ 阶段 {stage_name} 失败 (attempt {attempt}/{attempts}): {str(e)[:120]}")
+                if attempt < attempts:
+                    time.sleep(STAGE_RETRY_DELAY_SECONDS)
+
+        raise RuntimeError(f"阶段 {stage_name} 最终失败: {last_error}")
+
+    @staticmethod
+    def _load_json(path: Path) -> Any:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    @staticmethod
+    def _save_json(path: Path, payload: Any):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    def _load_or_run_stage(
+        self,
+        stage_name: str,
+        cache_path: Path,
+        runner: Callable[[], Any],
+        retryable: bool = True,
+    ) -> Any:
+        if RESUME_FROM_CACHE and cache_path.exists():
+            logger.info(f"♻️ 阶段 {stage_name}: 使用缓存 {cache_path}")
+            return self._load_json(cache_path)
+
+        result = self._run_with_retry(stage_name, runner, retryable=retryable)
+        self._save_json(cache_path, result)
+        logger.info(f"💾 阶段 {stage_name}: 已缓存到 {cache_path}")
+        return result
+
+    def _update_pipeline_state(self, state_path: Path, stage: str, status: str, detail: str = ""):
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state = {}
+        if state_path.exists():
+            try:
+                state = self._load_json(state_path)
+            except Exception:
+                state = {}
+
+        state[stage] = {"status": status, "time": now, "detail": detail}
+        self._save_json(state_path, state)
+
+    def _analyze_ranked_items(self, ranked_items: list[dict]) -> list[dict]:
+        articles_data = []
+        successful_count = 0
+        failed_count = 0
+
+        for i, item in enumerate(ranked_items, 1):
+            logger.info(f"[{i}/{len(ranked_items)}] 处理: {item['title'][:30]}... (得分: {item['score']:.1f})")
+
+            article_for_ai = {
+                "title": item.get("title", ""),
+                "summary": item.get("summary", ""),
+                "source": item.get("source", "Unknown"),
+                "link": item.get("link", ""),
+            }
+            ai_result = self.analyzer.analyze_single(article_for_ai)
+
+            if ai_result:
+                articles_data.append(ai_result)
+                successful_count += 1
+                logger.info(f"✅ [{i}] 分析成功: {ai_result.get('title', 'N/A')[:40]}")
+            else:
+                failed_count += 1
+                logger.warning(f"⚠️ [{i}] 分析失败，跳过此文章")
+
+            time.sleep(1)
+
+        logger.info(f"\n📊 AI 分析完成: 成功 {successful_count} 条，失败 {failed_count} 条")
+        if successful_count == 0:
+            raise RuntimeError("所有文章分析均失败")
+
+        articles_data.sort(key=lambda x: x.get("importance_score", 0), reverse=True)
+        logger.info("📊 已按重要性评分从高到低排序")
+        return articles_data
+
     def run(self):
-        """运行日报生成流程"""
         try:
-            # 1. 采集 RSS 文章
+            date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            pipeline_dir = Path(PIPELINE_CACHE_DIR)
+            pipeline_dir.mkdir(parents=True, exist_ok=True)
+            pipeline_state = pipeline_dir / f"{date_str}_state.json"
+            collected_cache = pipeline_dir / f"{date_str}_collected.json"
+            deduped_cache = pipeline_dir / f"{date_str}_deduped.json"
+            ranked_cache = pipeline_dir / f"{date_str}_ranked.json"
+            analyzed_cache = pipeline_dir / f"{date_str}_analyzed.json"
+
             logger.info("🚀 启动采集 (过去24小时) ...")
-            items = self.collector.collect_all()
+            items = self._load_or_run_stage(
+                "collect",
+                collected_cache,
+                lambda: self.collector.collect_all(),
+                retryable=True,
+            )
+            self._update_pipeline_state(pipeline_state, "collect", "success", f"items={len(items)}")
 
             if not items:
                 logger.warning("❌ 过去24小时内没有新资讯，任务结束。")
+                self._update_pipeline_state(pipeline_state, "collect", "empty")
                 return
 
-            # 2. 文章去重（基于标题语义相似度）
             logger.info(f"\n🔄 开始去重 (共 {len(items)} 条文章)...")
-            items = self.deduplicator.deduplicate(items, source_name_key="source")
-
-            # 3. 智能排序并限制数量（确保中文新闻 ≥ 10 篇）
-            logger.info(f"\n📊 开始智能排序 (共 {len(items)} 条文章)...")
-            ranked_items = self.ranker.rank_articles_with_chinese_quota(
-                items,
-                top_n=MAX_ARTICLES_IN_REPORT,
-                chinese_quota=10  # 确保至少10篇中文新闻
+            deduped_items = self._load_or_run_stage(
+                "deduplicate",
+                deduped_cache,
+                lambda: self.deduplicator.deduplicate(items, source_name_key="source"),
+                retryable=False,
             )
+            self._update_pipeline_state(pipeline_state, "deduplicate", "success", f"items={len(deduped_items)}")
 
-            # 打印排序统计
+            logger.info(f"\n📊 开始智能排序 (共 {len(deduped_items)} 条文章)...")
+            ranked_items = self._load_or_run_stage(
+                "rank",
+                ranked_cache,
+                lambda: self.ranker.rank_articles_with_chinese_quota(
+                    deduped_items,
+                    top_n=MAX_ARTICLES_IN_REPORT,
+                    chinese_quota=10,
+                ),
+                retryable=False,
+            )
+            self._update_pipeline_state(pipeline_state, "rank", "success", f"items={len(ranked_items)}")
             logger.info(f"\n{self.ranker.get_ranking_summary(ranked_items)}")
 
-            # 3. AI 分析
             logger.info(f"\n🤖 开始 AI 分析 (Top {len(ranked_items)} 条)...")
-            date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            articles_data = self._load_or_run_stage(
+                "analyze",
+                analyzed_cache,
+                lambda: self._analyze_ranked_items(ranked_items),
+                retryable=True,
+            )
+            self._update_pipeline_state(pipeline_state, "analyze", "success", f"items={len(articles_data)}")
 
-            # 收集所有 AI 分析结果
-            articles_data = []
-            successful_count = 0
-            failed_count = 0
-
-            for i, item in enumerate(ranked_items, 1):
-                logger.info(f"[{i}/{len(ranked_items)}] 处理: {item['title'][:30]}... (得分: {item['score']:.1f})")
-
-                # 转换为 AI 分析器需要的格式
-                article_for_ai = {
-                    "title": item.get("title", ""),
-                    "summary": item.get("summary", ""),
-                    "source": item.get("source", "Unknown"),
-                    "link": item.get("link", "")
-                }
-
-                ai_result = self.analyzer.analyze_single(article_for_ai)
-
-                if ai_result:
-                    # AI 分析成功，添加到列表
-                    articles_data.append(ai_result)
-                    successful_count += 1
-                    logger.info(f"✅ [{i}] 分析成功: {ai_result.get('title', 'N/A')[:40]}")
-                else:
-                    # AI 分析失败
-                    failed_count += 1
-                    logger.warning(f"⚠️ [{i}] 分析失败，跳过此文章")
-
-                time.sleep(1)  # 避免请求过快
-
-            logger.info(f"\n📊 AI 分析完成: 成功 {successful_count} 条，失败 {failed_count} 条")
-
-            # 按 importance_score 从高到低排序
-            articles_data.sort(key=lambda x: x.get('importance_score', 0), reverse=True)
-            logger.info("📊 已按重要性评分从高到低排序")
-
-            if successful_count == 0:
-                logger.error("❌ 所有文章分析均失败，任务结束。")
-                return
-
-            # 4. 保存到本地 JSON 文件
             logger.info("\n💾 正在保存到本地 JSON 文件...")
-            local_file = self.local_publisher.save_json(articles_data, date_str)
+            local_json_path = Path(OUTPUT_DIR) / f"{date_str}.json"
+            if RESUME_FROM_CACHE and local_json_path.exists():
+                local_file = str(local_json_path)
+                logger.info(f"♻️ 本地 JSON 已存在，跳过重写: {local_file}")
+            else:
+                local_file = self.local_publisher.save_json(articles_data, date_str)
 
             if not local_file:
-                logger.error("❌ 本地保存失败，跳过上传")
+                self._update_pipeline_state(pipeline_state, "local_publish", "failed")
+                logger.error("❌ 本地保存失败，任务结束")
                 return
+            self._update_pipeline_state(pipeline_state, "local_publish", "success", local_file)
 
-            # 5. 上传到云服务器 JSON 目录
-            logger.info("\n☁️ 正在上传到云服务器 JSON 目录...")
             remote_filename = f"{date_str}.json"
+            upload_success = False
 
-            if self.cloud_publisher.upload(local_file, remote_filename, CLOUD_SERVER_JSON_REMOTE_PATH):
-                logger.info(f"✅ JSON 报告已成功上传到云服务器: {CLOUD_SERVER_HOST}:{CLOUD_SERVER_JSON_REMOTE_PATH}/{remote_filename}")
+            if UPLOAD_ENABLED:
+                logger.info("\n☁️ 正在上传到云服务器 JSON 目录...")
 
-                # JSON 上传成功后，发送邮件（JSON→MD→邮件）
-                logger.info("\n📧 开始发送邮件...")
+                def _upload_once() -> bool:
+                    if self.cloud_publisher.upload(local_file, remote_filename, CLOUD_SERVER_JSON_REMOTE_PATH):
+                        return True
+                    raise RuntimeError("upload() returned False")
+
                 try:
-                    import subprocess
+                    self._run_with_retry("upload", _upload_once, retryable=True)
+                    upload_success = True
+                    self._update_pipeline_state(pipeline_state, "upload", "success", remote_filename)
+                    logger.info(f"✅ JSON 报告已成功上传到云服务器: {CLOUD_SERVER_HOST}:{CLOUD_SERVER_JSON_REMOTE_PATH}/{remote_filename}")
+                except Exception as e:
+                    self._update_pipeline_state(pipeline_state, "upload", "failed", str(e)[:200])
+                    logger.error(f"❌ 云服务器上传失败: {str(e)[:120]}")
+            else:
+                self._update_pipeline_state(pipeline_state, "upload", "skipped", "UPLOAD_ENABLED=false")
+                logger.info("ℹ️ 已跳过上传阶段（UPLOAD_ENABLED=false）")
+
+            can_send_email = EMAIL_ENABLED and (upload_success or EMAIL_WHEN_UPLOAD_FAIL or not UPLOAD_ENABLED)
+            if can_send_email:
+                logger.info("\n📧 开始发送邮件...")
+                import subprocess
+
+                email_sender_script = Path(__file__).parent / "daily_email_sender.sh"
+
+                def _send_once() -> bool:
                     result = subprocess.run(
-                        ['/Users/MarkHuang/miniconda3/bin/python3', 'daily_email_sender.sh'],
+                        [sys.executable, str(email_sender_script)],
                         capture_output=True,
                         text=True,
-                        timeout=120
+                        timeout=120,
                     )
                     if result.returncode == 0:
-                        logger.info("✅ 邮件发送成功")
-                    else:
-                        logger.warning(f"⚠️ 邮件发送失败: {result.stdout}")
-                except Exception as e:
-                    logger.warning(f"⚠️ 邮件发送异常: {str(e)[:100]}")
-            else:
-                logger.error("❌ 云服务器上传失败（跳过邮件发送）")
+                        return True
+                    raise RuntimeError(result.stdout or result.stderr or "unknown email error")
 
-            # 打印成本报告
+                try:
+                    self._run_with_retry("email", _send_once, retryable=True)
+                    self._update_pipeline_state(pipeline_state, "email", "success")
+                    logger.info("✅ 邮件发送成功")
+                except Exception as e:
+                    self._update_pipeline_state(pipeline_state, "email", "failed", str(e)[:200])
+                    logger.warning(f"⚠️ 邮件发送失败: {str(e)[:120]}")
+            else:
+                reason = "EMAIL_ENABLED=false" if not EMAIL_ENABLED else "upload_failed_and_EMAIL_WHEN_UPLOAD_FAIL=false"
+                self._update_pipeline_state(pipeline_state, "email", "skipped", reason)
+                logger.info(f"ℹ️ 已跳过邮件发送阶段（{reason}）")
+
             logger.info(self.analyzer.get_cost_report())
 
         except Exception as e:
@@ -336,7 +409,6 @@ class AI_Daily_Report:
 
 if __name__ == "__main__":
     try:
-        # 首先更新 RSSHub 代理 IP
         logger.info("=" * 60)
         logger.info("🔍 检查并更新 RSSHub 代理 IP...")
         update_rsshub_proxy_ip()

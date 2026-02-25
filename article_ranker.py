@@ -201,13 +201,13 @@ class ArticleRanker:
         # 每匹配一个关键词得4分，最高40分
         return min(40, matches * 4)
 
-    def rank_articles(self, articles: List[Dict], top_n: int = 30) -> List[Dict]:
+    def rank_articles(self, articles: List[Dict], top_n: int = 40) -> List[Dict]:
         """
         对文章列表进行排序，返回前N篇
 
         Args:
             articles: 文章列表
-            top_n: 返回前N篇，默认20
+            top_n: 返回前N篇，默认40
 
         Returns:
             排序后的文章列表（已添加 'score' 字段）

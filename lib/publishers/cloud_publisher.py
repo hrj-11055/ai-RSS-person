@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from core.utils import setup_logger, get_optional_env, get_required_env
+from core.utils import setup_logger, get_optional_env
 from core.utils.constants import (
     DEFAULT_CLOUD_SERVER_HOST,
     DEFAULT_CLOUD_SERVER_PORT,
@@ -141,6 +141,10 @@ class CloudPublisher:
         Returns:
             True if succeeded, False otherwise
         """
+        if not self.host or not self.user:
+            logger.error("❌ SFTP上传缺少 CLOUD_SERVER_HOST 或 CLOUD_SERVER_USER 配置")
+            return False
+
         try:
             import paramiko
         except ImportError:
@@ -256,6 +260,10 @@ class CloudPublisher:
         Returns:
             True if succeeded, False otherwise
         """
+        if not self.host or not self.user:
+            logger.error("❌ FTP上传缺少 CLOUD_SERVER_HOST 或 CLOUD_SERVER_USER 配置")
+            return False
+
         try:
             from ftplib import FTP
         except ImportError:
