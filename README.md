@@ -61,7 +61,7 @@ python daily_report_PRO_cloud.py
 │  │  RSSCollector    │───▶│ArticleDeduplicat│───▶│  ArticleRanker   │     │
 │  │  • 60+ 源采集    │    │or               │    │  • 权重评分 60%  │     │
 │  │  • 时间窗口 24h  │    │  • Jaccard相似度 │    │  • 关键词 40%    │     │
-│  │  • 每源最多 7 条 │    │  • 保留高权重源  │    │  • Top 50 筛选   │     │
+│  │  • 每源最多 7 条 │    │  • 保留高权重源  │    │  • Top 40 筛选   │     │
 │  └──────────────────┘    └──────────────────┘    └────────┬─────────┘     │
 │                                                                  │           │
 │                                                          ┌───────▼───────┐   │
@@ -177,7 +177,7 @@ python daily_report_PRO_cloud.py
 │  │  GPT, Claude, OpenAI, DeepSeek, LLM, Transformer, Agent,            │   │
 │  │  多模态, 开源, 模型发布, 融资, 收购                                   │   │
 │  │                                                                      │   │
-│  │  输出: Top 50 条高质量文章                                          │   │
+│  │  输出: Top 40 条高质量文章                                          │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────────┬────────────────────────────────────────┘
                                      │
@@ -322,7 +322,7 @@ python daily_report_PRO_cloud.py
      │               │◀───────────────│               │               │
      │               │                │               │               │
      │               │ 智能排序后     │               │               │
-     │               │ (Top 50)       │               │               │
+     │               │ (Top 40)       │               │               │
      │               │                │               │               │
      │               │ AI分析每篇     │               │               │
      │               │───────────────────────────────▶│               │
@@ -392,7 +392,65 @@ RSSHUB_HOST=http://localhost:1200  # RSSHub 地址
 
 # 抓取设置
 MAX_ITEMS_PER_SOURCE=7             # 每源抓取数量
-MAX_ARTICLES_IN_REPORT=50          # 日报最大文章数
+MAX_ARTICLES_IN_REPORT=40          # 日报最大文章数
+```
+
+---
+
+## 开发流程（防止文档漂移）
+
+每次提交前，执行：
+
+```bash
+./scripts/dev/pre_pr_check.sh
+```
+
+该检查会自动执行：
+- 单元测试：`python3 -m unittest discover tests -v`
+- 文档一致性检查：`python3 scripts/dev/check_docs_consistency.py`
+
+CI 也会在 PR 与 `main` 分支推送时执行同样检查：
+- `.github/workflows/quality-gates.yml`
+
+---
+
+## 部署与测试（精简）
+
+### RSSHub（本地）
+
+```bash
+# 启动 RSSHub
+cd ~/rsshub-service && npm start dist/index.mjs &
+
+# 停止 RSSHub
+pkill -f "node.*dist/index.mjs"
+
+# 验证
+curl "http://localhost:1200/twitter/user/OpenAI"
+```
+
+### 服务器定时任务（systemd）
+
+```bash
+# 部署脚本
+./scripts/server/deploy.sh
+
+# 定时器状态
+systemctl status ai-rss-daily.timer
+systemctl list-timers ai-rss-daily.timer
+
+# 服务日志
+journalctl -u ai-rss-daily.service -f
+```
+
+### 测试命令
+
+```bash
+# 全量单测
+python3 -m unittest discover tests -v
+
+# 文档一致性检查
+python3 scripts/dev/check_docs_consistency.py
 ```
 
 ---
@@ -405,7 +463,7 @@ MAX_ARTICLES_IN_REPORT=50          # 日报最大文章数
 - 优化 RSSHub 代理（本地直连）
 - 新增 20+ RSS 源
 - 删除大量技术博客，聚焦新闻聚合
-- 超参数调整（每源7条，日报50条）
+- 超参数调整（每源7条，日报40条）
 
 ---
 

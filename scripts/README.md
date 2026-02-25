@@ -10,6 +10,8 @@ scripts/
 │   ├── start.sh           # 本地启动
 │   ├── stop.sh            # 本地停止
 │   ├── send_report.sh     # 手动发送报告
+│   ├── pre_pr_check.sh    # 提交前质量检查（测试+文档一致）
+│   ├── check_docs_consistency.py  # 文档一致性检查
 │   └── test_*.py          # 测试脚本
 │
 ├── mac/                    # macOS 专用脚本
@@ -38,6 +40,12 @@ scripts/
 
 # 更新 Twitter Cookie
 ./scripts/mac/update_twitter_cookie.sh
+
+# 检查 README 与代码默认值是否一致
+python3 ./scripts/dev/check_docs_consistency.py
+
+# 提交前执行完整检查（推荐）
+./scripts/dev/pre_pr_check.sh
 ```
 
 ### 服务器部署
