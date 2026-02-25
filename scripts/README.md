@@ -26,6 +26,10 @@ scripts/
     ├── ai-rss-cleanup.service      # 产物清理服务
     ├── ai-rss-cleanup.timer        # 产物清理定时器
     ├── cleanup_artifacts.sh        # 清理历史报告与缓存
+    ├── ai-rss-cookie-rotate.service # Twitter Cookie 轮换服务
+    ├── ai-rss-cookie-rotate.timer   # Twitter Cookie 每周轮换定时器
+    ├── rotate_twitter_cookie.sh     # 轮换脚本（更新 .env 并重启 RSSHub）
+    ├── check_email_delivery.sh      # 检查 JSON->MD->邮件发送链路
     ├── deploy.sh                   # 一键部署脚本
     └── health-check.sh             # 健康检查脚本
 ```
@@ -72,6 +76,9 @@ systemctl list-timers ai-rss-daily.timer
 
 # 查看清理定时器状态
 systemctl status ai-rss-cleanup.timer
+
+# 查看 Cookie 轮换定时器状态
+systemctl status ai-rss-cookie-rotate.timer
 
 # 查看日志
 journalctl -u ai-rss-daily.service -f

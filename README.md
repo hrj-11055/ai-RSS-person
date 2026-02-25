@@ -25,6 +25,11 @@ docker compose up -d
 python daily_report_PRO_cloud.py
 ```
 
+服务器同机部署建议：
+- `UPLOAD_ENABLED=false`（关闭云上传）
+- `LOCAL_TARGET_DIR=/your/target/dir`（生成后自动复制 JSON 到目标目录）
+- `EMAIL_ENABLED=true` 后可用 `scripts/server/check_email_delivery.sh` 验证 JSON→MD→邮件链路
+
 ---
 
 ## 系统架构
@@ -456,6 +461,10 @@ systemctl list-timers ai-rss-daily.timer
 # 清理定时器状态（产物保留治理）
 systemctl status ai-rss-cleanup.timer
 systemctl list-timers ai-rss-cleanup.timer
+
+# Twitter Cookie 轮换定时器（每周）
+systemctl status ai-rss-cookie-rotate.timer
+systemctl list-timers ai-rss-cookie-rotate.timer
 
 # 服务日志
 journalctl -u ai-rss-daily.service -f
