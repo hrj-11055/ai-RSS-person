@@ -191,6 +191,31 @@ check_rsshub() {
         log "❌ RSSHub 无法访问"
         return 1
     fi
+
+    # Twitter 认证可用性探测（凭证为空或路由不可达时告警）
+    local tw_auth tw_ct0
+    tw_auth=$(grep -E '^TWITTER_AUTH_TOKEN=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d '=' -f2- || true)
+    tw_ct0=$(grep -E '^TWITTER_CT0=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d '=' -f2- || true)
+
+    if [ -z "$tw_auth" ] || [ -z "$tw_ct0" ]; then
+        log "⚠️ Twitter 凭证未配置（TWITTER_AUTH_TOKEN/TWITTER_CT0）"
+        send_alert "⚠️ Twitter Cookie 未配置，需更新 auth_token/ct0"
+        return 0
+    fi
+
+    local twitter_status
+    twitter_status=$(curl -s -o /tmp/rsshub_twitter_probe.out -w "%{http_code}" --max-time 20 "http://localhost:1200/twitter/user/OpenAI" || echo "000")
+    if [ "$twitter_status" != "200" ]; then
+        local snippet
+        snippet=$(head -c 120 /tmp/rsshub_twitter_probe.out 2>/dev/null | tr '\n' ' ' || true)
+        log "⚠️ Twitter 路由探测异常: HTTP $twitter_status"
+        send_alert "⚠️ Twitter 路由探测异常 HTTP $twitter_status，可能需要轮换 Cookie"
+        if [ -n "$snippet" ]; then
+            log "ℹ️ Twitter 探测响应片段: $snippet"
+        fi
+    else
+        log "✅ Twitter 路由探测正常"
+    fi
 }
 
 # 检查定时任务状态

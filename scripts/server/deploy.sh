@@ -127,6 +127,8 @@ install_services() {
         "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-daily.timer" \
         "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-cleanup.service" \
         "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-cleanup.timer" \
+        "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-cookie-rotate.service" \
+        "${LOCAL_PROJECT_DIR}/scripts/server/ai-rss-cookie-rotate.timer" \
         "${SERVER_USER}@${SERVER_HOST}:/etc/systemd/system/"
 
     # 重载并启用服务
@@ -136,9 +138,12 @@ install_services() {
         systemctl start ai-rss-daily.timer
         systemctl enable ai-rss-cleanup.timer
         systemctl start ai-rss-cleanup.timer
+        systemctl enable ai-rss-cookie-rotate.timer
+        systemctl start ai-rss-cookie-rotate.timer
         echo "服务状态:"
         systemctl status ai-rss-daily.timer --no-pager
         systemctl status ai-rss-cleanup.timer --no-pager
+        systemctl status ai-rss-cookie-rotate.timer --no-pager
 ENDSSH
 
     log_info "systemd 服务安装完成"
@@ -180,9 +185,20 @@ show_post_deploy_info() {
     echo "4. 查看定时任务状态:"
     echo "   systemctl status ai-rss-daily.timer"
     echo "   systemctl list-timers ai-rss-daily.timer"
+    echo "   systemctl status ai-rss-cleanup.timer"
+    echo "   systemctl status ai-rss-cookie-rotate.timer"
     echo ""
-    echo "5. 查看日志:"
+    echo "5. 配置 Twitter Cookie 自动轮换源文件:"
+    echo "   mkdir -p /opt/ai-RSS-person/secrets"
+    echo "   chmod 700 /opt/ai-RSS-person/secrets"
+    echo "   vim /opt/ai-RSS-person/secrets/twitter_cookie.txt"
+    echo ""
+    echo "6. 查看日志:"
     echo "   journalctl -u ai-rss-daily.service -f"
+    echo "   journalctl -u ai-rss-cookie-rotate.service -f"
+    echo ""
+    echo "7. 检查邮件链路(JSON->MD->SMTP):"
+    echo "   bash /opt/ai-RSS-person/scripts/server/check_email_delivery.sh"
     echo "=================================================="
 }
 

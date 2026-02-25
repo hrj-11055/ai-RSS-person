@@ -1,0 +1,13 @@
+[Unit]
+Description=AI RSS Twitter Cookie Rotate Timer
+Requires=ai-rss-cookie-rotate.service
+
+[Timer]
+# Weekly rotation: every Sunday at 02:20 (Asia/Shanghai)
+OnCalendar=Sun *-*-* 02:20:00
+TimeZone=Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target
