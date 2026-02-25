@@ -45,7 +45,7 @@ rss:
 
 # Article ranking configuration
 ranking:
-  max_articles_in_report: 20
+  max_articles_in_report: 40
   source_authority_weight: 0.60  # 60% from source authority
   content_relevance_weight: 0.40  # 40% from content relevance
   min_source_weight: 50

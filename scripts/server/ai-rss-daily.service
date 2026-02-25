@@ -5,8 +5,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=ai-rss
-Group=ai-rss
+User=root
+Group=root
 WorkingDirectory=/opt/ai-RSS-person
 Environment="PATH=/opt/ai-RSS-person/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 # 加载环境变量

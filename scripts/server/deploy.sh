@@ -92,10 +92,9 @@ create_remote_dirs() {
     log_info "创建远程目录..."
 
     ssh -p "${SERVER_PORT}" "${SERVER_USER}@${SERVER_HOST}" << 'ENDSSH'
-        id -u ai-rss >/dev/null 2>&1 || useradd --system --create-home --home-dir /opt/ai-rss --shell /usr/sbin/nologin ai-rss
         mkdir -p /opt/ai-RSS-person/reports
         mkdir -p /opt/ai-RSS-person/logs
-        chown -R ai-rss:ai-rss /opt/ai-RSS-person/reports /opt/ai-RSS-person/logs
+        chown -R root:root /opt/ai-RSS-person/reports /opt/ai-RSS-person/logs
         chmod +x /opt/ai-RSS-person/scripts/server/*.sh
 ENDSSH
 
@@ -111,7 +110,7 @@ install_dependencies() {
         python3 -m venv .venv
         .venv/bin/python -m pip install --upgrade pip
         .venv/bin/pip install -r requirements.lock.txt
-        chown -R ai-rss:ai-rss /opt/ai-RSS-person/.venv
+        chown -R root:root /opt/ai-RSS-person/.venv
 ENDSSH
 
     log_info "Python 依赖安装完成"

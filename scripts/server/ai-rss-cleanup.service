@@ -4,8 +4,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=ai-rss
-Group=ai-rss
+User=root
+Group=root
 WorkingDirectory=/opt/ai-RSS-person
 ExecStart=/bin/bash /opt/ai-RSS-person/scripts/server/cleanup_artifacts.sh
 StandardOutput=journal
