@@ -64,7 +64,7 @@ class ArticleDeduplicator:
     def deduplicate(
         self,
         articles: List[Dict],
-        source_name_key: str = 'source_name',
+        source_name_key: str = 'source',
         title_key: str = 'title'
     ) -> List[Dict]:
         """

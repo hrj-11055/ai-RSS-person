@@ -235,7 +235,7 @@ class AI_Daily_Report:
 
             # 2. 文章去重（基于标题语义相似度）
             logger.info(f"\n🔄 开始去重 (共 {len(items)} 条文章)...")
-            items = self.deduplicator.deduplicate(items)
+            items = self.deduplicator.deduplicate(items, source_name_key="source")
 
             # 3. 智能排序并限制数量（确保中文新闻 ≥ 10 篇）
             logger.info(f"\n📊 开始智能排序 (共 {len(items)} 条文章)...")

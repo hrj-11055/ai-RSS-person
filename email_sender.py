@@ -6,6 +6,7 @@ qq邮箱邮件发送脚本
 
 import os
 import smtplib
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -62,8 +63,6 @@ def send_email(
         # 设置抄送和密送
         if cc_email:
             msg["Cc"] = cc_email
-        if bcc_email:
-            msg["Bcc"] = bcc_email
 
         # 添加HTML正文
         html_part = MIMEText(html_content, "html", "utf-8")
@@ -207,8 +206,14 @@ def md_to_html(md_content: str, title: str) -> str:
             html_lines.append(f"<h3>{title_text}</h3>")
             continue
 
-        # 加粗文本
-        line = line.replace("**", "<strong>").replace("**", "</strong>") if "**" in line else line
+        # 优先识别元数据行
+        is_field_line = line.startswith("**") and ":" in line
+        is_meta_line = (
+            line.startswith("**来源**:") or
+            line.startswith("**分类**:") or
+            line.startswith("**重要性**:") or
+            line.startswith("**发布时间**:")
+        )
 
         # 链接 [text](url)
         while "[" in line and "](" in line:
@@ -233,13 +238,16 @@ def md_to_html(md_content: str, title: str) -> str:
             html_lines.append("<hr>")
             continue
 
+        # 加粗文本（成对替换）
+        line = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", line)
+
         # 普通段落
-        if line.startswith("**") and ":" in line:
-            # 这是一个字段行（如 **关键点**: xxx）
-            line = f"<p><strong>{line}</strong></p>"
-        elif line.startswith("**来源**:") or line.startswith("**分类**:") or line.startswith("**重要性**:") or line.startswith("**发布时间**:"):
+        if is_meta_line:
             # 元数据行
             line = f"<div class='meta'>{line}</div>"
+        elif is_field_line:
+            # 这是一个字段行（如 **关键点**: xxx）
+            line = f"<p><strong>{line}</strong></p>"
         else:
             line = f"<p>{line}</p>"
 
