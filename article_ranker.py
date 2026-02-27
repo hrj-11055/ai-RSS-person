@@ -20,8 +20,7 @@ from core.config_manager import get_config_manager, ConfigManager
 CHINESE_SOURCE_PATTERNS = [
     r'量子位', r'新智元', r'36.*氪', r'机器之心', r'极客公园',
     r'InfoQ', r'AI前线', r'智东西', r'钛媒体', r'虎嗅',
-    r'甲子光年', r'智能涌现', r'少数派', r'阮一峰',
-    r'逛逛GitHub', r'赛博禅心', r'夕小瑶', r'AIBase',
+    r'甲子光年', r'智能涌现', r'少数派', r'赛博禅心', r'夕小瑶', r'AIBase',
     r'AI Base', r'深科技', r'AI科技评论', r'AI新社'
 ]
 

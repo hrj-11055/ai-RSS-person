@@ -9,9 +9,12 @@ import time
 import os
 import fcntl
 import shutil
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 
 from core.utils import setup_logger, CostTracker
 from core.utils.observability import (
@@ -178,6 +181,10 @@ class FileLock:
 
 class AI_Daily_Report:
     """AI 日报生成器主类"""
+    DAILY_SOURCE_CAP = 4
+    HISTORY_DEDUP_DAYS = 3
+    HISTORY_TITLE_SIM_THRESHOLD = 0.72
+    HISTORY_EVENT_SIM_THRESHOLD = 0.60
 
     def __init__(self, settings: AppSettings):
         self.settings = settings
@@ -478,31 +485,270 @@ class AI_Daily_Report:
         shutil.copy2(src_json, dst_json)
         return str(dst_json)
 
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        if not text:
+            return ""
+        return re.sub(r"\s+", " ", text.strip().lower())
+
+    @classmethod
+    def _extract_fact_signature(cls, title: str, summary: str) -> tuple[str, set[str], set[str]]:
+        text = cls._normalize_text(f"{title} {summary}")
+        if not text:
+            return "", set(), set()
+
+        tokens: set[str] = set()
+        for word in re.findall(r"[a-z]{3,}", text):
+            tokens.add(word)
+
+        for chunk in re.findall(r"[\u4e00-\u9fff]{2,8}", text):
+            if len(chunk) == 2:
+                tokens.add(chunk)
+                continue
+            for i in range(len(chunk) - 1):
+                tokens.add(chunk[i : i + 2])
+
+        numbers = set(re.findall(r"\d+(?:\.\d+)?(?:亿|万|%|美元|元|年)?", text))
+        return text, tokens, numbers
+
+    @staticmethod
+    def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        return len(left & right) / len(left | right)
+
+    def _load_recent_report_articles(self, date_str: str, days: int) -> list[dict[str, Any]]:
+        output_dir = Path(self.settings.report.output_dir)
+        today = datetime.date.fromisoformat(date_str)
+        history: list[dict[str, Any]] = []
+
+        for offset in range(1, days + 1):
+            target_day = today - datetime.timedelta(days=offset)
+            report_file = output_dir / f"{target_day.isoformat()}.json"
+            if not report_file.exists():
+                continue
+            try:
+                payload = self._load_json(report_file)
+            except Exception as e:
+                logger.warning(f"⚠️ 历史日报读取失败: {report_file} ({str(e)[:100]})")
+                continue
+
+            for article in payload.get("articles", []):
+                title = article.get("title", "")
+                summary = article.get("summary", "")
+                normalized, tokens, numbers = self._extract_fact_signature(title, summary)
+                if not normalized:
+                    continue
+                history.append(
+                    {
+                        "title": title,
+                        "summary": summary,
+                        "source": article.get("source_name", article.get("source", "unknown")),
+                        "report_date": target_day.isoformat(),
+                        "normalized": normalized,
+                        "tokens": tokens,
+                        "numbers": numbers,
+                    }
+                )
+
+        return history
+
+    def _is_history_duplicate(
+        self,
+        candidate: dict[str, Any],
+        history_item: dict[str, Any],
+    ) -> tuple[bool, float, float]:
+        cand_title = self._normalize_text(candidate.get("title", ""))
+        cand_text, cand_tokens, cand_numbers = self._extract_fact_signature(
+            candidate.get("title", ""),
+            candidate.get("summary", ""),
+        )
+        hist_title = self._normalize_text(history_item.get("title", ""))
+        hist_text = history_item.get("normalized", "")
+        hist_tokens = history_item.get("tokens", set())
+        hist_numbers = history_item.get("numbers", set())
+
+        if not cand_text or not hist_text:
+            return False, 0.0, 0.0
+
+        title_sim = SequenceMatcher(None, cand_title, hist_title).ratio()
+        token_sim = self._jaccard_similarity(cand_tokens, hist_tokens)
+        has_number_overlap = bool(cand_numbers and hist_numbers and (cand_numbers & hist_numbers))
+
+        duplicate = (
+            title_sim >= self.HISTORY_TITLE_SIM_THRESHOLD
+            or (title_sim >= self.HISTORY_EVENT_SIM_THRESHOLD and token_sim >= 0.20)
+            or (token_sim >= 0.42 and has_number_overlap)
+        )
+        return duplicate, title_sim, token_sim
+
+    def _filter_history_duplicates(
+        self,
+        ranked_items: list[dict[str, Any]],
+        date_str: str,
+        history_days: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        history = self._load_recent_report_articles(date_str, days=history_days)
+        if not history:
+            return ranked_items, []
+
+        kept: list[dict[str, Any]] = []
+        dropped: list[dict[str, Any]] = []
+
+        for item in ranked_items:
+            matched = None
+            best_title_sim = 0.0
+            best_token_sim = 0.0
+            for history_item in history:
+                is_dup, title_sim, token_sim = self._is_history_duplicate(item, history_item)
+                if is_dup:
+                    matched = history_item
+                    best_title_sim = title_sim
+                    best_token_sim = token_sim
+                    break
+            if matched:
+                dropped.append(
+                    {
+                        "title": item.get("title", ""),
+                        "source": item.get("source", "unknown"),
+                        "matched_date": matched.get("report_date", ""),
+                        "matched_source": matched.get("source", "unknown"),
+                        "matched_title": matched.get("title", ""),
+                        "title_sim": round(best_title_sim, 3),
+                        "token_sim": round(best_token_sim, 3),
+                    }
+                )
+            else:
+                kept.append(item)
+
+        if dropped:
+            logger.info(f"🧹 历史去重: 过滤 {len(dropped)} 条（对比近 {history_days} 天日报）")
+            for row in dropped[:3]:
+                logger.info(
+                    "  - 过滤: [{source}] {title} -> 命中 {matched_date} [{matched_source}] {matched_title}".format(
+                        **row
+                    )
+                )
+
+        return kept, dropped
+
+    @staticmethod
+    def _apply_source_cap(
+        ranked_items: list[dict[str, Any]],
+        cap: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        kept: list[dict[str, Any]] = []
+        dropped: list[dict[str, Any]] = []
+        source_count: Counter[str] = Counter()
+
+        for item in ranked_items:
+            source = item.get("source", "unknown")
+            if source_count[source] >= cap:
+                dropped.append(item)
+                continue
+            source_count[source] += 1
+            kept.append(item)
+
+        return kept, dropped
+
+    def _post_process_ranked_items(
+        self,
+        ranked_candidates: list[dict[str, Any]],
+        date_str: str,
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        history_filtered, history_dropped = self._filter_history_duplicates(
+            ranked_candidates,
+            date_str=date_str,
+            history_days=self.HISTORY_DEDUP_DAYS,
+        )
+        source_capped, source_dropped = self._apply_source_cap(
+            history_filtered,
+            cap=self.DAILY_SOURCE_CAP,
+        )
+
+        final_items = source_capped[: self.settings.report.max_articles_in_report]
+        logger.info(
+            "📉 排序后过滤: 候选=%d, 历史去重移除=%d, 来源上限移除=%d, 最终=%d",
+            len(ranked_candidates),
+            len(history_dropped),
+            len(source_dropped),
+            len(final_items),
+        )
+        return final_items, len(history_dropped), len(source_dropped)
+
+    def _analyze_single_item(self, item: dict, index: int, total: int) -> tuple[int, dict | None, dict | None]:
+        """分析单篇文章，用于并发执行"""
+        logger.info(f"[{index}/{total}] 处理: {item['title'][:30]}... (得分: {item['score']:.1f})")
+
+        article_for_ai = {
+            "title": item.get("title", ""),
+            "summary": item.get("summary", ""),
+            "source": item.get("source", "Unknown"),
+            "link": item.get("link", ""),
+        }
+
+        try:
+            ai_result = self.analyzer.analyze_single(article_for_ai)
+            if ai_result:
+                logger.info(f"✅ [{index}] 分析成功: {ai_result.get('title', 'N/A')[:40]}")
+                return index, ai_result, None
+            else:
+                logger.warning(f"⚠️ [{index}] 分析失败，跳过此文章")
+                return index, None, item
+        except Exception as e:
+            logger.warning(f"⚠️ [{index}] 分析异常: {str(e)[:50]}")
+            return index, None, item
+
     def _analyze_ranked_items(self, ranked_items: list[dict]) -> list[dict]:
+        # 并发数配置，默认5个线程
+        max_workers = int(os.getenv("AI_ANALYZER_CONCURRENCY", "5"))
+
         articles_data = []
         successful_count = 0
         failed_count = 0
+        failed_items = []
 
-        for i, item in enumerate(ranked_items, 1):
-            logger.info(f"[{i}/{len(ranked_items)}] 处理: {item['title'][:30]}... (得分: {item['score']:.1f})")
+        logger.info(f"🚀 开始并发 AI 分析 (并发数: {max_workers}, 文章数: {len(ranked_items)})...")
 
-            article_for_ai = {
-                "title": item.get("title", ""),
-                "summary": item.get("summary", ""),
-                "source": item.get("source", "Unknown"),
-                "link": item.get("link", ""),
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            futures = {
+                executor.submit(self._analyze_single_item, item, i, len(ranked_items)): i
+                for i, item in enumerate(ranked_items, 1)
             }
-            ai_result = self.analyzer.analyze_single(article_for_ai)
 
-            if ai_result:
-                articles_data.append(ai_result)
-                successful_count += 1
-                logger.info(f"✅ [{i}] 分析成功: {ai_result.get('title', 'N/A')[:40]}")
-            else:
-                failed_count += 1
-                logger.warning(f"⚠️ [{i}] 分析失败，跳过此文章")
+            # 收集结果
+            for future in as_completed(futures):
+                try:
+                    index, result, failed_item = future.result()
+                    if result:
+                        articles_data.append(result)
+                        successful_count += 1
+                    elif failed_item:
+                        failed_count += 1
+                        failed_items.append(failed_item)
+                except Exception as e:
+                    logger.error(f"❌ 并发任务异常: {e}")
 
-            time.sleep(1)
+        # 对失败的重试（串行，最多重试一次）
+        if failed_items and successful_count > 0:
+            logger.info(f"🔄 重试失败的 {len(failed_items)} 篇文章...")
+            for item in failed_items:
+                try:
+                    article_for_ai = {
+                        "title": item.get("title", ""),
+                        "summary": item.get("summary", ""),
+                        "source": item.get("source", "Unknown"),
+                        "link": item.get("link", ""),
+                    }
+                    ai_result = self.analyzer.analyze_single(article_for_ai)
+                    if ai_result:
+                        articles_data.append(ai_result)
+                        successful_count += 1
+                        failed_count -= 1
+                        time.sleep(1)
+                except Exception:
+                    pass
 
         logger.info(f"\n📊 AI 分析完成: 成功 {successful_count} 条，失败 {failed_count} 条")
         if successful_count == 0:
@@ -557,20 +803,37 @@ class AI_Daily_Report:
             self.metrics.set_counter("deduplicated_items", len(deduped_items))
 
             logger.info(f"\n📊 开始智能排序 (共 {len(deduped_items)} 条文章)...")
-            ranked_items = self._load_or_run_stage(
+            candidate_top_n = max(self.settings.report.max_articles_in_report * 4, self.settings.report.max_articles_in_report)
+            ranked_candidates = self._load_or_run_stage(
                 "rank",
                 ranked_cache,
                 lambda: self.ranker.rank_articles_with_chinese_quota(
                     deduped_items,
-                    top_n=self.settings.report.max_articles_in_report,
+                    top_n=candidate_top_n,
                     chinese_quota=10,
                 ),
                 retryable=False,
             )
+            ranked_items, history_dropped_count, source_cap_dropped_count = self._post_process_ranked_items(
+                ranked_candidates,
+                date_str=date_str,
+            )
+            self._save_json(ranked_cache, ranked_items)
+            self.metrics.set_counter("history_deduplicated_items", history_dropped_count)
+            self.metrics.set_counter("source_capped_items", source_cap_dropped_count)
             self._last_ranked_items = ranked_items
-            self._update_pipeline_state(pipeline_state, "rank", "success", f"items={len(ranked_items)}")
+            self._update_pipeline_state(
+                pipeline_state,
+                "rank",
+                "success",
+                f"items={len(ranked_items)},history_dropped={history_dropped_count},source_cap_dropped={source_cap_dropped_count}",
+            )
             self.metrics.set_counter("ranked_items", len(ranked_items))
             logger.info(f"\n{self.ranker.get_ranking_summary(ranked_items)}")
+
+            if not ranked_items:
+                logger.warning("❌ 排序后无可用文章（可能被历史去重全部过滤），任务结束。")
+                return
 
             logger.info(f"\n🤖 开始 AI 分析 (Top {len(ranked_items)} 条)...")
             articles_data = self._load_or_run_stage(

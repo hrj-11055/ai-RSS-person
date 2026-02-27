@@ -14,8 +14,8 @@ source_weights:
   DeepSeek AI: 90
 
   # 顶级科技媒体
-  TechCrunch AI: 75
-  The Verge AI: 75
+  TechCrunch AI: 80
+  The Verge AI: 83
   Ars Technica AI: 75
   MIT Technology Review: 80
   WIRED: 80
@@ -42,22 +42,21 @@ source_weights:
   Andrew Ng: 85
 
   # 中文媒体
-  阮一峰博客: 90
-  少数派: 75
-  机器之心: 95
-  36氪 AI: 90
-  极客公园 AI新浪潮: 93
-  InfoQ AI: 91
-  AI Base 新闻: 92
-  量子位: 96
-  AI前线: 94
-  新智元: 97
-  深科技: 90
-  AI科技评论: 92
-  智东西: 90
-  逛逛GitHub: 88
-  赛博禅心: 85
-  夕小瑶科技说: 88
+  阮一峰博客: 85
+  少数派: 80
+  机器之心: 90
+  36氪 AI: 85
+  极客公园 AI新浪潮: 75
+  InfoQ AI: 86
+  AI Base 新闻: 87
+  量子位: 91
+  AI前线: 89
+  新智元: 92
+  深科技: 85
+  AI科技评论: 87
+  智东西: 85
+  赛博禅心: 80
+  夕小瑶科技说: 83
 
   # 技术博客 (精选)
   Simon Willison: 85
@@ -89,18 +88,36 @@ source_weights:
 
 # 高权重关键词 (40% 权重)
 keywords:
-  # AI 模型相关
+  # AI 模型相关 - 国际
   - gpt
   - claude
   - gemini
-  - kimi
-  - deepseek
+  - llama
+  - mistral
+  - grok
+  - cohere
+  - perplexity
   - transformer
   - model
   - 模型
   - 大模型
+  - LLM
   - github
+
+  # AI 模型相关 - 国内
+  - deepseek
+  - kimi
+  - 通义
+  - qwen
+  - 星火
+  - 智谱
+  - glm
+  - minimax
+  - 豆包
+
+  # AI 通用
   - AI
+  - AGI
 
   # 融资/商业相关
   - funding

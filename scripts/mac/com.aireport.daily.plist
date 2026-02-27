@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aireport.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/MarkHuang/miniconda3/bin/python3</string>
+        <string>/Users/MarkHuang/ai-RSS-person/daily_report_PRO_cloud.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/MarkHuang/ai-RSS-person</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/MarkHuang/miniconda3/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/MarkHuang/ai-RSS-person/logs/stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/MarkHuang/ai-RSS-person/logs/stderr.log</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>Disabled</key>
+    <true/>
+</dict>
+</plist>

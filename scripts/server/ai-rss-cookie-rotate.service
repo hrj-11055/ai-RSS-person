@@ -6,7 +6,7 @@ After=network-online.target
 Type=oneshot
 User=root
 WorkingDirectory=/opt/ai-RSS-person
-ExecStart=/bin/bash /opt/ai-RSS-person/scripts/server/rotate_twitter_cookie.sh
+ExecStart=/bin/bash -lc "set -o pipefail; /bin/bash /opt/ai-RSS-person/scripts/server/rotate_twitter_cookie.sh 2>&1 | tee -a /opt/ai-RSS-person/logs/ai-rss-cookie-rotate.log"
 StandardOutput=journal
 StandardError=journal
 
