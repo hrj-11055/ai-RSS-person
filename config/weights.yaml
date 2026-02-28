@@ -172,3 +172,6 @@ keywords:
 scoring:
   source_weight: 0.6    # 来源权重 60%
   content_weight: 0.4   # 内容权重 40%
+  # 同一事件被多个来源共同报道时的加分（去重后保留的那条生效）
+  multi_source_boost_per_extra_source: 3.0
+  multi_source_boost_cap: 12.0

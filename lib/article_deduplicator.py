@@ -10,8 +10,10 @@ Version: 1.0.0
 
 import logging
 from typing import List, Dict, Set, Tuple
-from collections import defaultdict
+from collections import Counter, defaultdict
 import re
+from difflib import SequenceMatcher
+from urllib.parse import urlparse, parse_qsl, urlunparse, urlencode
 
 # 导入共享工具
 import sys
@@ -35,7 +37,7 @@ class ArticleDeduplicator:
 
     def __init__(
         self,
-        similarity_threshold: float = 0.85,
+        similarity_threshold: float = 0.72,
         config_manager: ConfigManager = None
     ):
         """
@@ -113,9 +115,7 @@ class ArticleDeduplicator:
                     continue
 
                 other_article = sorted_articles[j]
-                other_title = other_article.get(title_key, '')
-
-                if self._are_titles_similar(title, other_title):
+                if self._are_articles_similar(article, other_article, title_key=title_key):
                     similar_articles.append(other_article)
                     used_indices.add(j)
 
@@ -137,12 +137,114 @@ class ArticleDeduplicator:
         result = []
         for group in processed_groups:
             best = self._select_best_article(group, source_name_key)
-            result.append(best)
+            result.append(self._annotate_event_coverage(best, group, source_name_key))
+
+        # 第二阶段：独立统计“多源同报”覆盖，不依赖是否已被去重合并
+        result = self._enrich_event_coverage(
+            deduplicated=result,
+            original_articles=articles,
+            source_name_key=source_name_key,
+            title_key=title_key,
+        )
 
         removed_count = len(articles) - len(result)
         logger.info(f"✅ 去重完成: 移除 {removed_count} 篇重复文章，保留 {len(result)} 篇")
 
         return result
+
+    @staticmethod
+    def _annotate_event_coverage(best_article: Dict, group: List[Dict], source_name_key: str) -> Dict:
+        """在去重后的保留文章上标记同事件被多少来源共同报道。"""
+        annotated = dict(best_article)
+
+        sources: list[str] = []
+        for item in group:
+            source = (
+                item.get(source_name_key)
+                or item.get("source")
+                or item.get("source_name")
+                or "Unknown"
+            )
+            source = str(source).strip()
+            if source:
+                sources.append(source)
+
+        unique_sources = list(dict.fromkeys(sources))
+        annotated["event_source_count"] = max(1, len(unique_sources))
+        annotated["event_sources"] = unique_sources
+        annotated["event_duplicate_count"] = max(0, len(group) - 1)
+        return annotated
+
+    def _enrich_event_coverage(
+        self,
+        deduplicated: List[Dict],
+        original_articles: List[Dict],
+        source_name_key: str,
+        title_key: str,
+    ) -> List[Dict]:
+        """
+        用更宽松的事件相似规则统计“多源同报”覆盖数。
+
+        目的：即使文章没有在第一阶段被真正合并，也能在排序时获得多源共同报道加分。
+        """
+        enriched: List[Dict] = []
+
+        for item in deduplicated:
+            current_sources = list(item.get("event_sources", [])) or [self._extract_source(item, source_name_key)]
+            source_order = dict.fromkeys([s for s in current_sources if s])
+            related_article_count = 0
+
+            for candidate in original_articles:
+                if self._are_articles_related_for_coverage(item, candidate, title_key=title_key):
+                    related_article_count += 1
+                    source = self._extract_source(candidate, source_name_key)
+                    if source:
+                        source_order.setdefault(source, None)
+
+            annotated = dict(item)
+            merged_sources = list(source_order.keys())
+            source_count = max(int(annotated.get("event_source_count", 1) or 1), len(merged_sources))
+            annotated["event_sources"] = merged_sources
+            annotated["event_source_count"] = max(1, source_count)
+            annotated["event_article_count"] = max(related_article_count, int(annotated.get("event_article_count", 0) or 0))
+            annotated["event_duplicate_count"] = max(0, annotated["event_source_count"] - 1)
+            enriched.append(annotated)
+
+        return enriched
+
+    @staticmethod
+    def _extract_source(item: Dict, source_name_key: str) -> str:
+        return (
+            str(
+                item.get(source_name_key)
+                or item.get("source")
+                or item.get("source_name")
+                or "Unknown"
+            ).strip()
+        )
+
+    def _are_articles_related_for_coverage(self, article1: Dict, article2: Dict, title_key: str = "title") -> bool:
+        """宽松版同事件判定，用于统计多源覆盖数，不用于直接删文。"""
+        title1 = self._clean_title(article1.get(title_key, ""))
+        title2 = self._clean_title(article2.get(title_key, ""))
+        if not title1 or not title2:
+            return False
+
+        sim = self._char_similarity(title1, title2)
+        overlap = self._char_overlap_ratio(title1, title2)
+        common = self._longest_common_substring_len(title1, title2)
+
+        nums1 = self._extract_numbers(title1)
+        nums2 = self._extract_numbers(title2)
+        has_number_overlap = bool(nums1 and nums2 and (nums1 & nums2))
+
+        if sim >= 0.70 and common >= 8:
+            return True
+
+        if has_number_overlap and common >= 6 and (sim >= 0.30 or overlap >= 0.55):
+            return True
+
+        return False
 
     def _get_source_weight(self, source_name: str) -> int:
         """获取源权重，默认为50"""
@@ -208,17 +310,41 @@ class ArticleDeduplicator:
         if not clean1 or not clean2:
             return False
 
-        # 1. 完全匹配
-        if clean1 == clean2:
+        # 直接使用字符相似度（SequenceMatcher）
+        return self._char_similarity(clean1, clean2) >= self.similarity_threshold
+
+    def _are_articles_similar(self, article1: Dict, article2: Dict, title_key: str = "title") -> bool:
+        """判断两篇文章是否属于同一事件（字符相似度主导）。"""
+        title1 = article1.get(title_key, "")
+        title2 = article2.get(title_key, "")
+        if not title1 or not title2:
+            return False
+
+        # URL 规范化后一致，直接判定重复
+        url1 = self._canonicalize_url(article1.get("link", "") or article1.get("url", ""))
+        url2 = self._canonicalize_url(article2.get("link", "") or article2.get("url", ""))
+        if url1 and url1 == url2:
             return True
 
-        # 2. 包含关系（较短标题包含在较长标题中）
-        if clean1 in clean2 or clean2 in clean1:
+        clean1 = self._clean_title(title1)
+        clean2 = self._clean_title(title2)
+        if not clean1 or not clean2:
+            return False
+
+        title_char_sim = self._char_similarity(clean1, clean2)
+        if title_char_sim >= self.similarity_threshold:
             return True
 
-        # 3. 词汇重叠度
-        similarity = self._calculate_similarity(clean1, clean2)
-        return similarity >= self.similarity_threshold
+        # 中等字符相似 + 数字重合 + 公共连续片段足够长，也视为同一事件。
+        # 这可以覆盖“同一融资/估值事件，不同媒体不同写法”场景。
+        nums1 = self._extract_numbers(clean1)
+        nums2 = self._extract_numbers(clean2)
+        has_number_overlap = bool(nums1 and nums2 and (nums1 & nums2))
+        common_substring_len = self._longest_common_substring_len(clean1, clean2)
+        if title_char_sim >= 0.43 and has_number_overlap and common_substring_len >= 6:
+            return True
+
+        return False
 
     def _clean_title(self, title: str) -> str:
         """清理标题，移除干扰信息"""
@@ -254,6 +380,88 @@ class ArticleDeduplicator:
             return 0.0
 
         return intersection / union
+
+    @staticmethod
+    def _char_similarity(text1: str, text2: str) -> float:
+        if not text1 or not text2:
+            return 0.0
+        return SequenceMatcher(None, text1, text2).ratio()
+
+    @staticmethod
+    def _char_overlap_ratio(text1: str, text2: str) -> float:
+        if not text1 or not text2:
+            return 0.0
+        counter1 = Counter(text1)
+        counter2 = Counter(text2)
+        inter = sum((counter1 & counter2).values())
+        base = min(len(text1), len(text2))
+        if base == 0:
+            return 0.0
+        return inter / base
+
+    @staticmethod
+    def _longest_common_substring_len(text1: str, text2: str) -> int:
+        if not text1 or not text2:
+            return 0
+        match = SequenceMatcher(None, text1, text2).find_longest_match(0, len(text1), 0, len(text2))
+        return int(match.size)
+
+    @staticmethod
+    def _overlap_ratio(left: Set[str], right: Set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        base = min(len(left), len(right))
+        if base == 0:
+            return 0.0
+        return len(left & right) / base
+
+    def _extract_keywords(self, text: str) -> Set[str]:
+        """抽取事件关键词（英文词组、数字词、中文词段）。"""
+        keywords: Set[str] = set()
+
+        for token in re.findall(r"[a-z0-9][a-z0-9+._-]{1,}", text.lower()):
+            if len(token) >= 3:
+                keywords.add(token)
+
+        for token in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+            if len(token) >= 2:
+                # 对中文词段做 2-gram，提升改写标题的重叠召回
+                for i in range(len(token) - 1):
+                    keywords.add(token[i:i + 2])
+
+        stopwords = {
+            "ai", "news", "blog", "today", "update", "发布", "宣布", "公司",
+            "模型", "产品", "功能", "平台", "支持", "推出", "上线", "新闻",
+        }
+        return {k for k in keywords if k not in stopwords}
+
+    @staticmethod
+    def _extract_numbers(text: str) -> Set[str]:
+        return set(re.findall(r"\d+(?:\.\d+)?", text))
+
+    @staticmethod
+    def _canonicalize_url(url: str) -> str:
+        if not url:
+            return ""
+        try:
+            parsed = urlparse(url.strip())
+            if not parsed.scheme or not parsed.netloc:
+                return ""
+            query_pairs = [
+                (k, v)
+                for k, v in parse_qsl(parsed.query, keep_blank_values=False)
+                if not (k.startswith("utm_") or k in {"spm", "from", "ref", "fbclid", "gclid"})
+            ]
+            query = urlencode(sorted(query_pairs))
+            normalized = parsed._replace(
+                scheme=parsed.scheme.lower(),
+                netloc=parsed.netloc.lower(),
+                fragment="",
+                query=query,
+            )
+            return urlunparse(normalized)
+        except Exception:
+            return ""
 
     def _tokenize(self, text: str) -> List[str]:
         """

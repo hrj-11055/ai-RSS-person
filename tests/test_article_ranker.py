@@ -185,6 +185,28 @@ class TestScoringEdgeCases(unittest.TestCase):
         # 总分 = 20分
         self.assertEqual(score, 20)
 
+    def test_multi_source_event_boost(self):
+        """测试多来源共同报道的排序加分"""
+        single_source_article = {
+            "title": "普通资讯",
+            "summary": "无关键词",
+            "source": "Completely Unknown Source",
+            "event_source_count": 1,
+        }
+        multi_source_article = {
+            "title": "普通资讯",
+            "summary": "无关键词",
+            "source": "Completely Unknown Source",
+            "event_source_count": 4,
+        }
+
+        base_score = self.ranker.calculate_score(single_source_article)
+        boosted_score = self.ranker.calculate_score(multi_source_article)
+
+        self.assertEqual(base_score, 0)
+        self.assertEqual(boosted_score, 9)
+        self.assertGreater(boosted_score, base_score)
+
 
 if __name__ == '__main__':
     unittest.main()

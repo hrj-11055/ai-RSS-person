@@ -10,6 +10,7 @@ import os
 import fcntl
 import shutil
 import re
+from collections import Counter as CharCounter
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
@@ -185,6 +186,14 @@ class AI_Daily_Report:
     HISTORY_DEDUP_DAYS = 3
     HISTORY_TITLE_SIM_THRESHOLD = 0.72
     HISTORY_EVENT_SIM_THRESHOLD = 0.60
+    INTRADAY_TITLE_SIM_THRESHOLD_STRONG = 0.72
+    INTRADAY_TITLE_SIM_THRESHOLD_NUMERIC = 0.43
+    INTRADAY_COMMON_SUBSTR_MIN = 6
+    FINAL_CONTENT_SIM_THRESHOLD_STRONG = 0.72
+    FINAL_CONTENT_SIM_THRESHOLD_NUMERIC = 0.40
+    FINAL_CONTENT_OVERLAP_THRESHOLD_NUMERIC = 0.45
+    FINAL_CONTENT_COMMON_SUBSTR_MIN = 6
+    FINAL_CONTENT_TITLE_SIM_GUARD = 0.42
 
     def __init__(self, settings: AppSettings):
         self.settings = settings
@@ -234,10 +243,87 @@ class AI_Daily_Report:
 
         self.local_publisher = LocalPublisher(output_dir=settings.report.output_dir)
 
+        # 去重阈值支持通过环境变量覆盖，便于线上快速调参
+        self.INTRADAY_TITLE_SIM_THRESHOLD_STRONG = self._clamp_float(
+            self._safe_float(
+                os.getenv("INTRADAY_TITLE_SIM_THRESHOLD_STRONG"),
+                self.INTRADAY_TITLE_SIM_THRESHOLD_STRONG,
+            ),
+            0.0,
+            1.0,
+        )
+        self.INTRADAY_TITLE_SIM_THRESHOLD_NUMERIC = self._clamp_float(
+            self._safe_float(
+                os.getenv("INTRADAY_TITLE_SIM_THRESHOLD_NUMERIC"),
+                self.INTRADAY_TITLE_SIM_THRESHOLD_NUMERIC,
+            ),
+            0.0,
+            1.0,
+        )
+        self.INTRADAY_COMMON_SUBSTR_MIN = max(
+            1,
+            self._safe_int(
+                os.getenv("INTRADAY_COMMON_SUBSTR_MIN"),
+                self.INTRADAY_COMMON_SUBSTR_MIN,
+            ),
+        )
+        self.FINAL_CONTENT_SIM_THRESHOLD_STRONG = self._clamp_float(
+            self._safe_float(
+                os.getenv("FINAL_CONTENT_SIM_THRESHOLD_STRONG"),
+                self.FINAL_CONTENT_SIM_THRESHOLD_STRONG,
+            ),
+            0.0,
+            1.0,
+        )
+        self.FINAL_CONTENT_SIM_THRESHOLD_NUMERIC = self._clamp_float(
+            self._safe_float(
+                os.getenv("FINAL_CONTENT_SIM_THRESHOLD_NUMERIC"),
+                self.FINAL_CONTENT_SIM_THRESHOLD_NUMERIC,
+            ),
+            0.0,
+            1.0,
+        )
+        self.FINAL_CONTENT_OVERLAP_THRESHOLD_NUMERIC = self._clamp_float(
+            self._safe_float(
+                os.getenv("FINAL_CONTENT_OVERLAP_THRESHOLD_NUMERIC"),
+                self.FINAL_CONTENT_OVERLAP_THRESHOLD_NUMERIC,
+            ),
+            0.0,
+            1.0,
+        )
+        self.FINAL_CONTENT_COMMON_SUBSTR_MIN = max(
+            1,
+            self._safe_int(
+                os.getenv("FINAL_CONTENT_COMMON_SUBSTR_MIN"),
+                self.FINAL_CONTENT_COMMON_SUBSTR_MIN,
+            ),
+        )
+        self.FINAL_CONTENT_TITLE_SIM_GUARD = self._clamp_float(
+            self._safe_float(
+                os.getenv("FINAL_CONTENT_TITLE_SIM_GUARD"),
+                self.FINAL_CONTENT_TITLE_SIM_GUARD,
+            ),
+            0.0,
+            1.0,
+        )
+
         if settings.rss.proxy_url:
             logger.info(f"✅ 代理已配置: {settings.rss.proxy_url}")
         else:
             logger.info("ℹ️ 未配置代理，使用直连")
+
+        logger.info(
+            "🧩 去重阈值: intraday_strong=%.2f intraday_numeric=%.2f intraday_lcs=%d "
+            "final_strong=%.2f final_numeric=%.2f final_overlap=%.2f final_lcs=%d final_title_guard=%.2f",
+            self.INTRADAY_TITLE_SIM_THRESHOLD_STRONG,
+            self.INTRADAY_TITLE_SIM_THRESHOLD_NUMERIC,
+            self.INTRADAY_COMMON_SUBSTR_MIN,
+            self.FINAL_CONTENT_SIM_THRESHOLD_STRONG,
+            self.FINAL_CONTENT_SIM_THRESHOLD_NUMERIC,
+            self.FINAL_CONTENT_OVERLAP_THRESHOLD_NUMERIC,
+            self.FINAL_CONTENT_COMMON_SUBSTR_MIN,
+            self.FINAL_CONTENT_TITLE_SIM_GUARD,
+        )
 
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -245,6 +331,17 @@ class AI_Daily_Report:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _clamp_float(value: float, lower: float, upper: float) -> float:
+        return max(lower, min(upper, value))
 
     def _build_rss_insights(self, ranked_items: list[dict]) -> dict[str, Any]:
         source_counts: Counter[str] = Counter()
@@ -651,6 +748,186 @@ class AI_Daily_Report:
 
         return kept, dropped
 
+    @staticmethod
+    def _normalize_title_for_char_sim(title: str) -> str:
+        text = (title or "").lower().strip()
+        text = re.sub(r"[^\w\u4e00-\u9fff]", "", text)
+        return text
+
+    @staticmethod
+    def _extract_numbers_from_title(title: str) -> set[str]:
+        return set(re.findall(r"\d+(?:\.\d+)?", title or ""))
+
+    def _is_intra_day_similar_event(self, left: dict[str, Any], right: dict[str, Any]) -> tuple[bool, float]:
+        left_title = self._normalize_title_for_char_sim(left.get("title", ""))
+        right_title = self._normalize_title_for_char_sim(right.get("title", ""))
+        if not left_title or not right_title:
+            return False, 0.0
+
+        title_sim = SequenceMatcher(None, left_title, right_title).ratio()
+        left_nums = self._extract_numbers_from_title(left_title)
+        right_nums = self._extract_numbers_from_title(right_title)
+        has_number_overlap = bool(left_nums and right_nums and (left_nums & right_nums))
+        no_numbers = not left_nums and not right_nums
+        common_len = SequenceMatcher(None, left_title, right_title).find_longest_match(
+            0, len(left_title), 0, len(right_title)
+        ).size
+
+        strong_match = title_sim >= self.INTRADAY_TITLE_SIM_THRESHOLD_STRONG and (has_number_overlap or no_numbers)
+        numeric_match = (
+            title_sim >= self.INTRADAY_TITLE_SIM_THRESHOLD_NUMERIC
+            and has_number_overlap
+            and common_len >= self.INTRADAY_COMMON_SUBSTR_MIN
+        )
+        return (strong_match or numeric_match), title_sim
+
+    def _filter_intra_day_similar_events(
+        self,
+        ranked_items: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        kept: list[dict[str, Any]] = []
+        dropped: list[dict[str, Any]] = []
+
+        for item in ranked_items:
+            matched = None
+            best_title_sim = 0.0
+            for kept_item in kept:
+                is_dup, title_sim = self._is_intra_day_similar_event(item, kept_item)
+                if is_dup:
+                    matched = kept_item
+                    best_title_sim = title_sim
+                    break
+
+            if matched:
+                dropped.append(
+                    {
+                        "title": item.get("title", ""),
+                        "source": item.get("source", "unknown"),
+                        "matched_source": matched.get("source", "unknown"),
+                        "matched_title": matched.get("title", ""),
+                        "title_sim": round(best_title_sim, 3),
+                    }
+                )
+            else:
+                kept.append(item)
+
+        if dropped:
+            logger.info(f"🧹 同日去重: 过滤 {len(dropped)} 条（字符相似度规则）")
+            for row in dropped[:3]:
+                logger.info(
+                    "  - 过滤: [{source}] {title} -> 命中 [{matched_source}] {matched_title} (title_sim={title_sim})".format(
+                        **row
+                    )
+                )
+
+        return kept, dropped
+
+    @staticmethod
+    def _char_overlap_ratio(left: str, right: str) -> float:
+        if not left or not right:
+            return 0.0
+        lc = CharCounter(left)
+        rc = CharCounter(right)
+        inter = sum((lc & rc).values())
+        base = min(len(left), len(right))
+        if base == 0:
+            return 0.0
+        return inter / base
+
+    def _filter_final_content_duplicates(
+        self,
+        analyzed_items: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        kept: list[dict[str, Any]] = []
+        dropped: list[dict[str, Any]] = []
+
+        def content_text(item: dict[str, Any]) -> str:
+            title = item.get("title", "")
+            summary = item.get("summary", "")
+            return self._normalize_title_for_char_sim(f"{title} {summary}")
+
+        def title_text(item: dict[str, Any]) -> str:
+            return self._normalize_title_for_char_sim(item.get("title", ""))
+
+        for item in analyzed_items:
+            curr_text = content_text(item)
+            curr_title = title_text(item)
+            curr_nums = self._extract_numbers_from_title(curr_text)
+            matched = None
+            best_sim = 0.0
+            best_title_sim = 0.0
+
+            for kept_item in kept:
+                kept_text = content_text(kept_item)
+                kept_title = title_text(kept_item)
+                sim = SequenceMatcher(None, curr_text, kept_text).ratio()
+                overlap = self._char_overlap_ratio(curr_text, kept_text)
+                kept_nums = self._extract_numbers_from_title(kept_text)
+                has_number_overlap = bool(curr_nums and kept_nums and (curr_nums & kept_nums))
+                common_len = SequenceMatcher(None, curr_text, kept_text).find_longest_match(
+                    0, len(curr_text), 0, len(kept_text)
+                ).size
+                title_sim = SequenceMatcher(None, curr_title, kept_title).ratio() if curr_title and kept_title else 0.0
+                title_common_len = SequenceMatcher(None, curr_title, kept_title).find_longest_match(
+                    0, len(curr_title), 0, len(kept_title)
+                ).size if curr_title and kept_title else 0
+
+                # 标题层面的“同事件”兜底：同数字 + 中高标题相似度，避免摘要改写导致漏去重。
+                title_numeric_match = (
+                    has_number_overlap
+                    and title_common_len >= self.FINAL_CONTENT_COMMON_SUBSTR_MIN
+                    and title_sim >= max(self.FINAL_CONTENT_TITLE_SIM_GUARD, 0.45)
+                )
+
+                is_dup = (
+                    sim >= self.FINAL_CONTENT_SIM_THRESHOLD_STRONG
+                    or overlap >= self.FINAL_CONTENT_SIM_THRESHOLD_STRONG
+                    or title_numeric_match
+                    or (
+                        has_number_overlap
+                        and common_len >= self.FINAL_CONTENT_COMMON_SUBSTR_MIN
+                        and (
+                            title_sim >= self.FINAL_CONTENT_TITLE_SIM_GUARD
+                            or title_common_len >= max(4, self.FINAL_CONTENT_COMMON_SUBSTR_MIN - 1)
+                        )
+                        and (
+                            sim >= self.FINAL_CONTENT_SIM_THRESHOLD_NUMERIC
+                            or overlap >= self.FINAL_CONTENT_OVERLAP_THRESHOLD_NUMERIC
+                        )
+                    )
+                )
+                if is_dup:
+                    matched = kept_item
+                    best_sim = max(sim, overlap)
+                    best_title_sim = title_sim
+                    break
+
+            if matched:
+                dropped.append(
+                    {
+                        "title": item.get("title", ""),
+                        "source": item.get("source_name", item.get("source", "unknown")),
+                        "matched_source": matched.get("source_name", matched.get("source", "unknown")),
+                        "matched_title": matched.get("title", ""),
+                        "sim": round(best_sim, 3),
+                        "title_sim": round(best_title_sim, 3),
+                    }
+                )
+            else:
+                kept.append(item)
+
+        if dropped:
+            logger.info(f"🧹 结果去重: 过滤 {len(dropped)} 条（按标题+摘要字符相似度）")
+            for row in dropped[:5]:
+                logger.info(
+                    "  - 过滤: [{source}] {title} -> 命中 [{matched_source}] {matched_title} "
+                    "(sim={sim}, title_sim={title_sim})".format(
+                        **row
+                    )
+                )
+
+        return kept, dropped
+
     def _post_process_ranked_items(
         self,
         ranked_candidates: list[dict[str, Any]],
@@ -661,20 +938,22 @@ class AI_Daily_Report:
             date_str=date_str,
             history_days=self.HISTORY_DEDUP_DAYS,
         )
+        intraday_filtered, intraday_dropped = self._filter_intra_day_similar_events(history_filtered)
         source_capped, source_dropped = self._apply_source_cap(
-            history_filtered,
+            intraday_filtered,
             cap=self.DAILY_SOURCE_CAP,
         )
 
         final_items = source_capped[: self.settings.report.max_articles_in_report]
         logger.info(
-            "📉 排序后过滤: 候选=%d, 历史去重移除=%d, 来源上限移除=%d, 最终=%d",
+            "📉 排序后过滤: 候选=%d, 历史去重移除=%d, 同日去重移除=%d, 来源上限移除=%d, 最终=%d",
             len(ranked_candidates),
             len(history_dropped),
+            len(intraday_dropped),
             len(source_dropped),
             len(final_items),
         )
-        return final_items, len(history_dropped), len(source_dropped)
+        return final_items, len(history_dropped), len(source_dropped) + len(intraday_dropped)
 
     def _analyze_single_item(self, item: dict, index: int, total: int) -> tuple[int, dict | None, dict | None]:
         """分析单篇文章，用于并发执行"""
@@ -844,6 +1123,11 @@ class AI_Daily_Report:
             )
             self._update_pipeline_state(pipeline_state, "analyze", "success", f"items={len(articles_data)}")
             self.metrics.set_counter("analyzed_items", len(articles_data))
+
+            # 最终按内容做一次字符相似度去重，避免同一事件在不同来源重复出现在成品日报
+            articles_data, final_dropped = self._filter_final_content_duplicates(articles_data)
+            self.metrics.set_counter("final_content_dedup_dropped", len(final_dropped))
+            self.metrics.set_counter("analyzed_items_after_final_dedup", len(articles_data))
 
             logger.info("\n💾 正在保存到本地 JSON 文件...")
             if self.metrics:

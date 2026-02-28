@@ -108,6 +108,8 @@ class ArticleRanker:
     DEFAULT_SCORING_CONFIG = {
         'source_weight': 0.6,
         'content_weight': 0.4,
+        'multi_source_boost_per_extra_source': 3.0,
+        'multi_source_boost_cap': 12.0,
     }
 
     def __init__(
@@ -170,8 +172,9 @@ class ArticleRanker:
 
         score += (self._calculate_source_score(item) / 60.0) * source_max_points
         score += (self._calculate_relevance_score(item) / 40.0) * content_max_points
+        score += self._calculate_multi_source_boost(item)
 
-        return round(score, 2)
+        return round(min(100.0, score), 2)
 
     def _calculate_source_score(self, item: Dict) -> float:
         """
@@ -204,6 +207,28 @@ class ArticleRanker:
 
         # 每匹配一个关键词得4分，最高40分
         return min(40, matches * 4)
+
+    def _calculate_multi_source_boost(self, item: Dict) -> float:
+        """
+        计算“多源同报”加分。
+
+        去重阶段会在保留文章上写入 event_source_count，
+        表示同一事件被多少独立信息源共同报道。
+        """
+        source_count = item.get('event_source_count', 1)
+        try:
+            source_count = int(source_count)
+        except (TypeError, ValueError):
+            source_count = 1
+
+        if source_count <= 1:
+            return 0.0
+
+        per_extra = float(self.scoring_config.get('multi_source_boost_per_extra_source', 3.0) or 3.0)
+        cap = float(self.scoring_config.get('multi_source_boost_cap', 12.0) or 12.0)
+
+        boost = max(0.0, (source_count - 1) * per_extra)
+        return min(cap, boost)
 
     def rank_articles(self, articles: List[Dict], top_n: int = 40) -> List[Dict]:
         """
